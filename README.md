@@ -72,7 +72,7 @@ Open [http://localhost:5678](http://localhost:5678) and complete the initial own
 
 ### 2. Configure the local API
 
-Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN`, confirm the OpenClaw command is available to the same Windows account, and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on.
+Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs.
 
 Install and run:
 
