@@ -1,1 +1,144 @@
-# OpenClaw-ChatGPT-Bridge
+# OpenClaw ChatGPT Bridge
+
+A local-first bridge for manually handing a task from a ChatGPT browser session to OpenClaw running on Windows, then bringing the execution report back into the conversation.
+
+> Status: early scaffold (v0.1). The API and extension are a first implementation; n8n workflow orchestration and the in-page ChatGPT handoff are not complete yet.
+
+## Intended workflow
+
+1. ChatGPT helps prepare a task.
+2. You explicitly send that task using the browser extension.
+3. The local FastAPI service creates a task ID and invokes the OpenClaw CLI.
+4. OpenClaw runs the task in the configured project workspace.
+5. The extension retrieves the task result using its task ID.
+6. You review the result and bring it back to ChatGPT. ChatGPT decides the next step; nothing runs automatically without another handoff.
+
+The extension is a manual relay, **not a native ChatGPT tool**. It does not silently read the conversation or automatically execute assistant messages.
+
+## Components
+
+- **OpenClaw**: existing Windows agent and execution environment.
+- **FastAPI**: authenticated loopback API and SQLite task ledger.
+- **n8n**: local workflow orchestration UI (Docker Compose deployment).
+- **Browser extension**: manual task submission from a ChatGPT tab.
+
+## Repository layout
+
+```text
+.
+├── api/
+│   ├── main.py
+│   ├── requirements.txt
+│   └── .env.example
+├── extension/
+│   ├── manifest.json
+│   ├── popup.html
+│   ├── popup.js
+│   └── content.js
+├── compose.yaml
+├── .env.example
+└── README.md
+```
+
+## Prerequisites
+
+- Windows 10/11
+- Docker Desktop with the WSL 2 backend
+- Python 3.10+
+- OpenClaw CLI installed and working for the Windows user running the API
+- Chrome or a Chromium-based browser
+
+## Local setup
+
+### 1. Configure n8n
+
+Copy `.env.example` to `.env`. Generate a unique encryption key and keep it private. In PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+$bytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$key = [Convert]::ToBase64String($bytes)
+(Get-Content .env -Raw).Replace('replace-with-a-random-32-byte-or-longer-secret', $key) | Set-Content .env
+```
+
+Start n8n:
+
+```powershell
+docker compose up -d
+```
+
+Open [http://localhost:5678](http://localhost:5678) and complete the initial owner setup. n8n data is stored in the named Docker volume `openclaw-chatgpt-bridge-n8n-data`.
+
+### 2. Configure the local API
+
+Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN`, confirm the OpenClaw command is available to the same Windows account, and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on.
+
+Install and run:
+
+```powershell
+py -m venv api/.venv
+api/.venv/Scripts/python.exe -m pip install -r api/requirements.txt
+api/.venv/Scripts/python.exe -m uvicorn main:app --app-dir api --host 127.0.0.1 --port 8765
+```
+
+Check [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health).
+
+The API intentionally binds to loopback. Do not change it to `0.0.0.0` or expose it publicly without a separately reviewed network security design.
+
+### 3. Load the extension
+
+1. Open `chrome://extensions` (or your Chromium browser's equivalent).
+2. Enable Developer mode.
+3. Choose **Load unpacked** and select this repository's `extension` folder.
+4. Open ChatGPT and click the extension icon.
+5. Enter the local API token and a task, then submit.
+
+The extension does not scrape the conversation or automatically execute assistant messages in this initial version.
+
+## API
+
+All task endpoints except health require:
+
+```http
+Authorization: Bearer <BRIDGE_API_TOKEN>
+```
+
+- `GET /health` — liveness check.
+- `POST /v1/tasks` — submit a task; returns `202` and a task ID.
+- `GET /v1/tasks/{task_id}` — inspect status and execution result.
+
+Example request:
+
+```json
+{ "task": "Run test.py and report stdout, stderr, and exit code." }
+```
+
+A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, and an error field when applicable.
+
+## Current milestones
+
+- [x] Initial private repository and project scaffold
+- [x] Local n8n Compose deployment definition
+- [x] Authenticated FastAPI task API with SQLite task tracking
+- [x] Manual extension popup for task submission
+- [ ] Verify OpenClaw CLI invocation and JSON output against the installed Windows version
+- [ ] Add result polling and a copy/return-to-ChatGPT action in the extension
+- [ ] Add an importable n8n workflow and wire n8n into the task lifecycle
+- [ ] Add automated tests and a one-command local launcher
+- [ ] Add explicit per-task file-diff reporting
+
+## Security notes
+
+- Keep `.env`, `api/.env`, tokens, encryption keys, SQLite databases, and execution logs out of Git.
+- Keep the API on `127.0.0.1`.
+- The API passes natural-language tasks to the configured OpenClaw agent. OpenClaw's own tool permissions remain authoritative; this project does not attempt to bypass them.
+- The configured workspace path is included in the agent instruction, but this is not an OS-level filesystem sandbox. Keep OpenClaw's actual filesystem permissions narrow.
+- Do not send secrets or credentials in task text.
+- Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
+
+## Documentation
+
+- [n8n self-hosting](https://docs.n8n.io/deploy/)
+- [n8n Docker Compose](https://docs.n8n.io/hosting/installation/server-setups/docker-compose/)
+- [OpenClaw agent CLI](https://docs.openclaw.ai/cli/agent)
