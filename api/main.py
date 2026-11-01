@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import secrets
 import sqlite3
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +21,8 @@ load_dotenv(BASE_DIR.parent / ".env")
 HOST = os.getenv("BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.getenv("BRIDGE_PORT", "8765"))
 TOKEN = os.getenv("BRIDGE_API_TOKEN", "")
-OPENCLAW_COMMAND = os.getenv("OPENCLAW_COMMAND", "openclaw")
+OPENCLAW_COMMAND = os.getenv("OPENCLAW_COMMAND", "node")
+OPENCLAW_ENTRYPOINT = os.getenv("OPENCLAW_ENTRYPOINT", "")
 OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main")
 WORKSPACE = Path(os.getenv("OPENCLAW_WORKSPACE", r"C:\\Magnus\\Code\\DSA")).expanduser().resolve()
 TIMEOUT = max(10, int(os.getenv("OPENCLAW_TIMEOUT_SECONDS", "300")))
@@ -92,18 +93,31 @@ async def run_openclaw(task_id: str, task: str) -> None:
         db.commit()
 
     try:
-        process = await asyncio.create_subprocess_exec(
-            OPENCLAW_COMMAND,
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as prompt_file:
+            prompt_file.write(prompt)
+            prompt_path = prompt_file.name
+
+        command = [OPENCLAW_COMMAND]
+        if OPENCLAW_ENTRYPOINT:
+            command.append(OPENCLAW_ENTRYPOINT)
+        command.extend([
             "agent",
             "--agent",
             OPENCLAW_AGENT_ID,
-            "--message",
-            prompt,
+            "--message-file",
+            prompt_path,
             "--json",
-            cwd=str(WORKSPACE),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        ])
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(WORKSPACE),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_b, stderr_b = await asyncio.wait_for(process.communicate(), timeout=TIMEOUT)
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
         stdout_b, stderr_b = await asyncio.wait_for(process.communicate(), timeout=TIMEOUT)
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
