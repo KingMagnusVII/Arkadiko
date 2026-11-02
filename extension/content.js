@@ -1,5 +1,4 @@
-// Adds a small Run/Stop switch to ChatGPT. Automation is OFF by default.
-// Only assistant messages with the explicit [[OPENCLAW_TASK]] marker are eligible.
+// Background content-script relay. Run/Stop controls live only in the extension popup.
 (() => {
   if (window.__openClawBridgeLoaded) return;
   window.__openClawBridgeLoaded = true;
@@ -11,53 +10,15 @@
   let enabled = false;
   let currentTask = null;
 
-  const style = document.createElement("style");
-  style.textContent = `
-    #openclaw-bridge-toggle {
-      position: fixed; right: 22px; bottom: 104px; z-index: 999999;
-      border: 1px solid #777; border-radius: 999px; padding: 8px 14px;
-      background: #171717; color: #eee; font: 600 12px/1.2 system-ui,sans-serif;
-      box-shadow: 0 3px 14px #0007; cursor: pointer;
-    }
-    #openclaw-bridge-toggle[data-state="running"] { border-color: #aaa; background: #292929; }
-    #openclaw-bridge-toggle:focus-visible { outline: 2px solid white; outline-offset: 3px; }
-  `;
-  document.documentElement.appendChild(style);
-
-  const toggle = document.createElement("button");
-  toggle.id = "openclaw-bridge-toggle";
-  toggle.type = "button";
-  toggle.textContent = "Run OpenClaw";
-  toggle.dataset.state = "stopped";
-  toggle.setAttribute("aria-pressed", "false");
-  document.documentElement.appendChild(toggle);
-
   async function loadState() {
-    const data = await chrome.storage.local.get(["bridgeRunning"]);
-    enabled = data.bridgeRunning === true;
-    paint();
+    const saved = await chrome.storage.local.get(["bridgeRunning"]);
+    enabled = saved.bridgeRunning === true;
   }
-  function paint() {
-    toggle.textContent = enabled ? "Stop OpenClaw" : "Run OpenClaw";
-    toggle.dataset.state = enabled ? "running" : "stopped";
-    toggle.setAttribute("aria-pressed", String(enabled));
-    toggle.title = enabled
-      ? "Automation is armed. Click to stop new handoffs and report submissions."
-      : "Automation is stopped. Click to arm explicit OpenClaw task handoffs.";
-  }
-
-  toggle.addEventListener("click", async () => {
-    enabled = !enabled;
-    await chrome.storage.local.set({ bridgeRunning: enabled });
-    paint();
-    if (!enabled && currentTask) currentTask.returnAllowed = false;
-  });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.bridgeRunning) {
       enabled = changes.bridgeRunning.newValue === true;
       if (!enabled && currentTask) currentTask.returnAllowed = false;
-      paint();
     }
   });
 
@@ -93,15 +54,16 @@
       composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: message }));
     } else {
       composer.replaceChildren();
-      const p = document.createElement("p");
-      p.textContent = message;
-      composer.appendChild(p);
+      const paragraph = document.createElement("p");
+      paragraph.textContent = message;
+      composer.appendChild(paragraph);
       composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: message }));
     }
-    await sleep(300);
+
+    await sleep(350);
     if (!enabled || !taskState.returnAllowed) return;
     const send = document.querySelector('button[data-testid="send-button"], button[aria-label*="Send"]');
-    if (!send || send.disabled) throw new Error("Send button unavailable; report was placed in the composer but not submitted.");
+    if (!send || send.disabled) throw new Error("Send button unavailable; report remains in the composer.");
     send.click();
   }
 
@@ -110,16 +72,24 @@
     node.dataset.openclawBridgeHandled = "true";
     const state = { returnAllowed: true };
     currentTask = state;
+
     try {
       const config = await settings();
-      if (!config.token) throw new Error("Bridge token missing. Configure it from the extension popup.");
+      if (!config.token) throw new Error("Bridge token missing. Configure it in the extension popup.");
       const headers = { "Content-Type": "application/json", Authorization: "Bearer " + config.token };
       if (!enabled || !state.returnAllowed) return;
-      const submitted = await fetch(config.endpoint + "/v1/tasks", {
-        method: "POST", headers, body: JSON.stringify({ task })
+
+      const submission = await fetch(config.endpoint + "/v1/tasks", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ task })
       });
-      const created = await submitted.json();
-      if (!submitted.ok) throw new Error(created.detail || submitted.statusText);
+      const created = await submission.json();
+      if (!submission.ok) throw new Error(created.detail || submission.statusText);
+
+      await chrome.storage.local.set({
+        bridgeLastStatus: { message: "OpenClaw is processing task " + created.task_id + ".", kind: "working" }
+      });
 
       let result;
       const deadline = Date.now() + 330000;
@@ -142,12 +112,24 @@
         "STDERR:",
         result.stderr || "(empty)"
       ].filter(Boolean).join("\n");
+
       await postReport(report, state);
+      if (enabled && state.returnAllowed) {
+        await chrome.storage.local.set({
+          bridgeLastStatus: { message: "Last task " + result.status + ". Report returned to ChatGPT.", kind: result.status }
+        });
+      }
     } catch (error) {
       console.error("[OpenClaw Bridge]", error);
+      await chrome.storage.local.set({
+        bridgeLastStatus: { message: "Handoff failed: " + error.message, kind: "error" }
+      });
       if (enabled && state.returnAllowed) {
-        try { await postReport("Automatic OpenClaw handoff failed:\n" + error.message, state); }
-        catch (returnError) { console.error("[OpenClaw Bridge] Could not return error:", returnError); }
+        try {
+          await postReport("Automatic OpenClaw handoff failed:\n" + error.message, state);
+        } catch (returnError) {
+          console.error("[OpenClaw Bridge] Could not return error:", returnError);
+        }
       }
     } finally {
       if (currentTask === state) currentTask = null;
@@ -162,15 +144,11 @@
     }
     node.querySelectorAll?.('[data-message-author-role="assistant"]').forEach(scanNode);
   }
-  function scan(root) {
-    if (root instanceof HTMLElement) scanNode(root);
-    root.querySelectorAll?.('[data-message-author-role="assistant"]').forEach(scanNode);
-  }
 
   const observer = new MutationObserver(records => {
     if (!enabled) return;
     for (const record of records) {
-      if (record.type === "childList") record.addedNodes.forEach(scan);
+      if (record.type === "childList") record.addedNodes.forEach(scanNode);
       else if (record.type === "characterData") scanNode(record.target.parentElement);
     }
   });
