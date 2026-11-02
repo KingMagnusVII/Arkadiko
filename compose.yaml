@@ -1,8 +1,12 @@
+# Optional local n8n deployment. The current FastAPI task path does not depend on n8n.
+# Both the n8n UI and its health check are loopback-bound for local use.
 services:
   n8n:
+    # For repeatable deployments, replace latest with a tested pinned image tag.
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: openclaw-bridge-n8n
     restart: unless-stopped
+    # Do not publish the UI on all network interfaces.
     ports:
       - "127.0.0.1:5678:5678"
     environment:
@@ -13,6 +17,7 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_SECURE_COOKIE: "false"
+    # Preserve n8n state when the container is recreated.
     volumes:
       - n8n_data:/home/node/.n8n
     healthcheck:
