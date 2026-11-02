@@ -6,14 +6,20 @@
   const START = "[[OPENCLAW_TASK]]";
   const END = "[[/OPENCLAW_TASK]]";
   const ACTIVE = new Set(["queued", "running"]);
+  const handledMessages = new WeakSet();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   let enabled = false;
+  let stateReady = false;
   let currentTask = null;
 
-  async function loadState() {
-    const saved = await chrome.storage.local.get(["bridgeRunning"]);
+  // Do not inspect messages until the saved Run/Stop state has been loaded.
+  const stateLoaded = chrome.storage.local.get(["bridgeRunning"]).then(saved => {
     enabled = saved.bridgeRunning === true;
-  }
+    stateReady = true;
+  }).catch(error => {
+    stateReady = true;
+    console.error("[OpenClaw Bridge] Could not load session state:", error);
+  });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.bridgeRunning) {
@@ -31,8 +37,8 @@
   }
 
   function taskFromAssistant(node) {
-    if (node.getAttribute("data-message-author-role") !== "assistant") return null;
-    const text = node.innerText || "";
+    if (!node || node.getAttribute("data-message-author-role") !== "assistant") return null;
+    const text = node.innerText || node.textContent || "";
     const start = text.lastIndexOf(START);
     if (start < 0) return null;
     const bodyStart = start + START.length;
@@ -41,10 +47,20 @@
     return text.slice(bodyStart, end).trim() || null;
   }
 
+  function readComposerText(composer) {
+    return (composer instanceof HTMLTextAreaElement ? composer.value : composer.innerText || "")
+      .replace(/\u00a0/g, " ").trim();
+  }
+
   async function postReport(report, taskState) {
     if (!enabled || !taskState.returnAllowed) return;
     const composer = document.querySelector('#prompt-textarea[contenteditable="true"], [data-testid="prompt-textarea"][contenteditable="true"], textarea[data-testid="prompt-textarea"]');
     if (!composer) throw new Error("ChatGPT composer not found. Open the conversation and try again.");
+
+    // Never destroy a user's unsent draft. Leave the report available in bridge status instead.
+    if (readComposerText(composer)) {
+      throw new Error("Your ChatGPT composer already contains a draft. It was left untouched; clear or send it before retrying the report.");
+    }
 
     const message = "OpenClaw execution report (automatic bridge return):\n\n" + report;
     composer.focus();
@@ -68,8 +84,8 @@
   }
 
   async function runTask(task, node) {
-    if (!enabled || node.dataset.openclawBridgeHandled === "true") return;
-    node.dataset.openclawBridgeHandled = "true";
+    if (!enabled || handledMessages.has(node)) return;
+    handledMessages.add(node);
     const state = { returnAllowed: true };
     currentTask = state;
 
@@ -122,36 +138,57 @@
     } catch (error) {
       console.error("[OpenClaw Bridge]", error);
       await chrome.storage.local.set({
-        bridgeLastStatus: { message: "Handoff failed: " + error.message, kind: "error" }
+        bridgeLastStatus: { message: "Handoff/report issue: " + error.message, kind: "error" }
       });
-      if (enabled && state.returnAllowed) {
-        try {
-          await postReport("Automatic OpenClaw handoff failed:\n" + error.message, state);
-        } catch (returnError) {
-          console.error("[OpenClaw Bridge] Could not return error:", returnError);
-        }
-      }
     } finally {
       if (currentTask === state) currentTask = null;
     }
   }
 
-  function scanNode(node) {
+  function scanAssistant(node) {
     if (!(node instanceof HTMLElement)) return;
-    if (node.matches('[data-message-author-role="assistant"]')) {
-      const task = taskFromAssistant(node);
-      if (task) runTask(task, node);
+    const task = taskFromAssistant(node);
+    if (task) runTask(task, node);
+  }
+
+  function scanMutationNode(node) {
+    if (!(node instanceof Node)) return;
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!element) return;
+
+    // Streaming often mutates descendants inside an already-created assistant message.
+    const ancestor = element.closest?.('[data-message-author-role="assistant"]');
+    if (ancestor) scanAssistant(ancestor);
+
+    if (element instanceof HTMLElement) {
+      if (element.matches('[data-message-author-role="assistant"]')) scanAssistant(element);
+      element.querySelectorAll?.('[data-message-author-role="assistant"]').forEach(scanAssistant);
     }
-    node.querySelectorAll?.('[data-message-author-role="assistant"]').forEach(scanNode);
   }
 
   const observer = new MutationObserver(records => {
-    if (!enabled) return;
+    if (!stateReady || !enabled) return;
     for (const record of records) {
-      if (record.type === "childList") record.addedNodes.forEach(scanNode);
-      else if (record.type === "characterData") scanNode(record.target.parentElement);
+      if (record.type === "childList") {
+        record.addedNodes.forEach(scanMutationNode);
+        // Also inspect the target's containing assistant; text can be appended to existing nodes.
+        scanMutationNode(record.target);
+      } else if (record.type === "characterData") {
+        scanMutationNode(record.target);
+      }
     }
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  loadState();
+
+  stateLoaded.then(() => {
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    // Catch a message that appeared while the initial storage read was pending,
+    // but only after confirming the user has armed the bridge.
+    if (enabled) {
+      document.querySelectorAll('[data-message-author-role="assistant"]').forEach(scanAssistant);
+    }
+  });
 })();
