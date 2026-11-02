@@ -99,7 +99,6 @@ async function saveConnection() {
 
 runButton.addEventListener("click", async () => {
   try {
-    await saveConnection();
     await chrome.storage.local.set({
       bridgeRunning: true,
       bridgeLastStatus: {
