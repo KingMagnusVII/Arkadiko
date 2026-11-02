@@ -66,6 +66,7 @@
 
     @media (prefers-reduced-motion: reduce) {
       .beam-card::before { animation: none; }
+      .halo::before { animation: none; }
     }
 
     header { margin-bottom: 18px; }
@@ -98,39 +99,72 @@
       letter-spacing: .02em;
     }
 
-    /* HaloInput/HaloTextarea-inspired frosted rim. */
+    /* HaloInput-style frosted shell: a visible luminous rim surrounds the field. */
     .halo {
       position: relative;
-      border-radius: 11px;
+      isolation: isolate;
+      border-radius: 12px;
       padding: 1px;
-      background: linear-gradient(135deg, #3a3a3a, #151515 42%, #454545);
+      background: linear-gradient(135deg, #666 0%, #252525 24%, #111 50%, #555 78%, #1d1d1d 100%);
     }
+
+    /* Soft halo behind the rim. */
     .halo::before {
       content: "";
       position: absolute;
-      inset: -1px;
-      border-radius: 12px;
-      background: radial-gradient(circle at 50% 0%, rgba(255,255,255,.22), transparent 55%);
+      z-index: -2;
+      inset: -7px;
+      border-radius: 17px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.26), rgba(255,255,255,.08) 32%, transparent 72%);
+      filter: blur(5px);
+      opacity: .8;
+      transition: opacity .2s, filter .2s;
       pointer-events: none;
     }
+
+    /* Sharp inner highlight that gives the HaloInput its lit edge. */
+    .halo::after {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      border-radius: 12px;
+      padding: 1px;
+      background: linear-gradient(115deg, rgba(255,255,255,.7), rgba(255,255,255,.08) 28%, transparent 55%, rgba(255,255,255,.42));
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+
+    .halo:focus-within {
+      background: linear-gradient(120deg, #bdbdbd, #4b4b4b 25%, #171717 52%, #8b8b8b 82%, #292929);
+    }
+
+    .halo:focus-within::before {
+      opacity: 1;
+      filter: blur(7px);
+      background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.38), rgba(255,255,255,.13) 35%, transparent 75%);
+    }
+
     input, textarea {
       position: relative;
+      z-index: 1;
       display: block;
       width: 100%;
-      border: 1px solid var(--field-border);
-      border-radius: 10px;
+      border: 0;
+      border-radius: 11px;
       outline: none;
-      background: rgba(10,10,10,.96);
+      background: linear-gradient(180deg, rgba(19,19,19,.98), rgba(8,8,8,.98));
       color: var(--text);
       font: inherit;
-      transition: border-color .18s, box-shadow .18s;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.7);
     }
     input { height: 39px; padding: 0 11px; }
     textarea { min-height: 112px; padding: 10px 11px; resize: vertical; }
     input::placeholder, textarea::placeholder { color: #656565; }
     input:focus, textarea:focus {
-      border-color: #777;
-      box-shadow: 0 0 0 3px rgba(255,255,255,.055), 0 0 18px rgba(255,255,255,.08);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 0 rgba(0,0,0,.8);
     }
 
     .status-row {
