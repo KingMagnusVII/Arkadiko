@@ -293,14 +293,9 @@
         <div class="halo"><input id="token" type="password" autocomplete="off" placeholder="Local API token"></div>
       </section>
 
-      <section class="section">
-        <label for="task">Task</label>
-        <div class="halo"><textarea id="task" placeholder="Describe what OpenClaw should do..."></textarea></div>
-      </section>
-
       <div class="actions">
-        <button id="send" type="button">Send to OpenClaw</button>
-        <button id="check" class="secondary" type="button" disabled>Check result</button>
+        <button id="run" type="button">Run OpenClaw</button>
+        <button id="stop" class="secondary" type="button">Stop</button>
       </div>
 
       <div class="halo status-halo">
@@ -316,7 +311,7 @@
       </div>
       <button id="copy" class="secondary" type="button" hidden>Copy report for ChatGPT</button>
 
-      <div class="footer">Manual handoff · loopback only · nothing runs automatically</div>
+      <div class="footer">User-controlled · explicit task markers only · loopback only</div>
     </div>
   </section>
   <script src="popup.js"></script>
