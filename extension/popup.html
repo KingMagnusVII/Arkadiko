@@ -99,7 +99,7 @@
       letter-spacing: .02em;
     }
 
-    /* Cult UI HaloInput shell, recolored white/silver without changing its structure. */
+    /* Shared monochrome HaloInput shell for fields and scrollable report surfaces. */
     .halo {
       position: relative;
       isolation: isolate;
@@ -111,7 +111,7 @@
       background: linear-gradient(135deg, #f2f2f2 0%, #777 18%, #252525 42%, #bdbdbd 72%, #444 100%);
     }
 
-    /* Original translucent glow layers, recolored monochrome. */
+    /* Soft monochrome halo texture sits behind each field/report surface. */
     .halo::before {
       content: "";
       position: absolute;
@@ -127,7 +127,7 @@
       pointer-events: none;
     }
 
-    /* Original moving light bands, now white-to-silver only. */
+    /* A restrained moving silver highlight keeps the original HaloInput texture. */
     .halo::after {
       content: "";
       position: absolute;
@@ -184,12 +184,14 @@
       align-items: center;
       gap: 8px;
       min-height: 37px;
-      margin-top: 15px;
+      margin: 0;
       padding: 9px 10px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: rgba(255,255,255,.025);
+      border: 0;
+      border-radius: 11px;
+      background: linear-gradient(180deg, rgba(19,19,19,.94), rgba(8,8,8,.97));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(0,0,0,.7);
     }
+    .status-halo { margin-top: 15px; }
     .dot {
       width: 7px;
       height: 7px;
@@ -198,7 +200,7 @@
       background: #777;
       box-shadow: 0 0 0 3px rgba(255,255,255,.035);
     }
-    #status { min-width: 0; white-space: pre-wrap; color: #c9c9c9; font-size: 11px; }
+    #status { min-width: 0; white-space: pre-wrap; color: #c9c9c9; font-size: 11px; overflow-wrap: anywhere; }
     #status[data-kind="working"] + .dot, #status[data-kind="queued"] + .dot { background: #fff; }
     #status[data-kind="completed"] + .dot { background: #cfcfcf; }
     #status[data-kind="failed"] + .dot, #status[data-kind="error"] + .dot { background: #888; }
@@ -212,11 +214,9 @@
 
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
 
-    /* Ghost-style controls with a monochrome, bottom-traveling BorderBeam. */
+    /* Keep the quiet ghost-button texture, but remove the animated glow/beam entirely. */
     button {
       position: relative;
-      isolation: isolate;
-      overflow: hidden;
       min-height: 38px;
       border: 1px solid #454545;
       border-radius: 10px;
@@ -227,28 +227,8 @@
       font: 650 12px/1.2 inherit;
       transition: border-color .2s, background .2s, color .2s, transform .2s, opacity .2s;
     }
-    /* A narrow white beam travels along the lower edge (the "line" size). */
-    button::after {
-      content: "";
-      position: absolute;
-      z-index: -1;
-      left: -35%;
-      bottom: 0;
-      width: 34%;
-      height: 1px;
-      border-radius: 999px;
-      background: linear-gradient(90deg, transparent, #fff 45%, #aaa 75%, transparent);
-      box-shadow: 0 0 7px rgba(255,255,255,.8);
-      opacity: .9;
-      pointer-events: none;
-      animation: button-line-beam 3.8s linear infinite;
-    }
-    @keyframes button-line-beam {
-      from { left: -35%; }
-      to { left: 105%; }
-    }
     button:hover:not(:disabled) {
-      border-color: #aaa;
+      border-color: #777;
       background: rgba(255,255,255,.075);
       color: #fff;
       transform: translateY(-1px);
@@ -263,25 +243,28 @@
       opacity: .4;
       transform: none;
     }
-    button:disabled::after { animation-play-state: paused; opacity: .2; }
-    button:focus-visible { outline: 2px solid #ddd; outline-offset: 2px; }
+    button:focus-visible { outline: 2px solid #aaa; outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) {
-      button::after { animation: none; left: 33%; }
       button { transition: none; }
     }
 
+    /* Scrollable execution output gets the same halo texture as the Task field. */
+    .result-halo { margin-top: 11px; }
     #result {
+      position: relative;
+      z-index: 1;
       max-height: 190px;
       overflow: auto;
-      margin: 11px 0 0;
+      margin: 0;
       padding: 11px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #090909;
+      border: 0;
+      border-radius: 11px;
+      background: linear-gradient(180deg, rgba(19,19,19,.94), rgba(8,8,8,.97));
       color: #d4d4d4;
       font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(0,0,0,.7);
     }
 
     #copy { width: 100%; margin-top: 8px; }
@@ -317,13 +300,17 @@
         <button id="check" class="secondary" type="button" disabled>Check result</button>
       </div>
 
-      <div class="status-row">
-        <span class="dot" aria-hidden="true"></span>
-        <div id="status" role="status" aria-live="polite">Ready.</div>
+      <div class="halo status-halo">
+        <div class="status-row">
+          <span class="dot" aria-hidden="true"></span>
+          <div id="status" role="status" aria-live="polite">Ready.</div>
+        </div>
       </div>
       <div id="task-meta">No active task</div>
 
-      <pre id="result" hidden></pre>
+      <div class="halo result-halo" hidden>
+        <pre id="result" hidden></pre>
+      </div>
       <button id="copy" class="secondary" type="button" hidden>Copy report for ChatGPT</button>
 
       <div class="footer">Manual handoff · loopback only · nothing runs automatically</div>
