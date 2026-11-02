@@ -2,7 +2,7 @@
 
 A local-first bridge for manually handing a task from a ChatGPT browser session to OpenClaw running on Windows, then bringing the execution report back into the conversation.
 
-> Status: early scaffold (v0.1). The API and extension are a first implementation; n8n workflow orchestration and the in-page ChatGPT handoff are not complete yet.
+> Status: early implementation (v0.2). The API now uses the supported Gateway-backed agent CLI and injects the user's persistent execution rules; n8n workflow orchestration and in-page ChatGPT handoff remain future work.
 
 ## Intended workflow
 
@@ -126,7 +126,8 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 - [x] Inject the user's Python full-path and execution-only/file-change instructions into every handed-off task
 - [x] Add result polling and a copy/return-to-ChatGPT action in the extension
 - [ ] Add an importable n8n workflow and wire n8n into the task lifecycle
-- [ ] Add automated tests and a one-command local launcher
+- [x] Add initial unit tests for JSON result parsing and persistent task instructions
+- [ ] Run the test suite on the user's Windows installation and add a one-command local launcher
 - [ ] Add explicit per-task file-diff reporting
 
 ## Security notes
