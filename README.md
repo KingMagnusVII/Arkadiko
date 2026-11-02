@@ -2,7 +2,7 @@
 
 A local-first bridge that lets a user arm automatic, explicitly marked task handoffs from ChatGPT to OpenClaw running on Windows, then returns execution reports to the same conversation.
 
-> Status: early implementation (v0.3). The extension adds an in-page Run/Stop control. Automation is stopped by default and only assistant messages containing the explicit `[[OPENCLAW_TASK]] ... [[/OPENCLAW_TASK]]` block are eligible for execution.
+> Status: early implementation (v0.3). The extension popup contains the Run/Stop controls; no controls are injected into the ChatGPT page. Automation is stopped by default and only assistant messages containing the explicit `[[OPENCLAW_TASK]] ... [[/OPENCLAW_TASK]]` block are eligible for execution.
 
 ## Intended workflow
 
@@ -94,7 +94,7 @@ The API intentionally binds to loopback. Do not change it to `0.0.0.0` or expose
 4. Open ChatGPT and click the extension icon.
 5. Enter the local API token and a task, then submit.
 
-The extension does not scrape the conversation or automatically execute assistant messages in this initial version.
+When armed, the content script watches only assistant messages for the explicit task markers. It ignores ordinary messages and never scans old conversation content when Run is pressed.
 
 ## API
 
