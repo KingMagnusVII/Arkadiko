@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
+<!-- Popup UI: API settings, task input, status, result display, and copy action. -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenClaw Bridge</title>
+  <!-- Styling is local to this popup; no external assets are loaded. -->
   <style>
     body { width: 340px; margin: 0; padding: 16px; font: 14px system-ui, sans-serif; color: #17202a; }
     h1 { margin: 0 0 12px; font-size: 17px; }
@@ -19,6 +21,7 @@
   </style>
 </head>
 <body>
+  <!-- The user reviews the task and explicitly clicks Send; there is no automatic handoff. -->
   <h1>OpenClaw Bridge</h1>
   <p class="hint">Manual handoff. Review the task before sending; nothing runs automatically.</p>
   <label for="endpoint">Local API URL</label>

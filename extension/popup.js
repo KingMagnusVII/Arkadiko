@@ -1,3 +1,7 @@
+// Popup controller for the manual ChatGPT -> local API -> OpenClaw handoff.
+// Runs in the extension popup, not inside the ChatGPT page.
+
+// Cache references to popup controls once; all UI updates use these nodes.
 const endpointInput = document.querySelector("#endpoint");
 const tokenInput = document.querySelector("#token");
 const taskInput = document.querySelector("#task");
@@ -5,20 +9,24 @@ const status = document.querySelector("#status");
 const resultBox = document.querySelector("#result");
 const checkButton = document.querySelector("#check");
 const copyButton = document.querySelector("#copy");
+// Kept only while this popup instance stays alive; closing it clears this ID.
 let latestTaskId = null;
 let latestReport = "";
 
+// Restore endpoint and token from extension-local storage.
 chrome.storage.local.get(["endpoint", "token"], (saved) => {
   if (saved.endpoint) endpointInput.value = saved.endpoint;
   if (saved.token) tokenInput.value = saved.token;
 });
 
+// Build the headers shared by authenticated submission and polling requests.
 function authHeaders() {
   const token = tokenInput.value.trim();
   if (!token) throw new Error("Enter the bridge token.");
   return { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
 }
 
+// Format the final API record for display and for pasting back into ChatGPT.
 function renderReport(data) {
   latestReport = [
     `Task ID: ${data.task_id}`,
@@ -35,6 +43,7 @@ function renderReport(data) {
   copyButton.hidden = false;
 }
 
+// Submit only after the user clicks; no page text is read or sent automatically.
 document.querySelector("#send").addEventListener("click", async () => {
   const endpoint = endpointInput.value.trim().replace(/\/$/, "");
   const task = taskInput.value.trim();
@@ -59,6 +68,7 @@ document.querySelector("#send").addEventListener("click", async () => {
   }
 });
 
+// Fetch the latest submitted task; the user controls when to poll.
 checkButton.addEventListener("click", async () => {
   if (!latestTaskId) return;
   const endpoint = endpointInput.value.trim().replace(/\/$/, "");
@@ -76,6 +86,7 @@ checkButton.addEventListener("click", async () => {
   }
 });
 
+// Copy the report so the user can deliberately paste it into ChatGPT.
 copyButton.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(latestReport);
