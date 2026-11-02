@@ -7,9 +7,10 @@ import secrets
 import sqlite3
 import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -62,6 +63,19 @@ def connect_db() -> sqlite3.Connection:
     )
     db.commit()
     return db
+
+
+@contextmanager
+def db_connection() -> Iterator[sqlite3.Connection]:
+    db = connect_db()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -140,7 +154,7 @@ async def run_openclaw(task_id: str, task: str) -> None:
     prompt_path: str | None = None
     process: asyncio.subprocess.Process | None = None
 
-    with connect_db() as db:
+    with db_connection() as db:
         db.execute(
             "UPDATE tasks SET status='running', started_at=? WHERE task_id=?",
             (utc_now(), task_id),
