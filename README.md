@@ -8,7 +8,7 @@ A local-first bridge for manually handing a task from a ChatGPT browser session 
 
 1. ChatGPT helps prepare a task.
 2. You explicitly send that task using the browser extension.
-3. The local FastAPI service creates a task ID and invokes the OpenClaw CLI.
+3. The local FastAPI service creates a task ID and invokes the Gateway-backed OpenClaw agent CLI.
 4. OpenClaw runs the task in the configured project workspace.
 5. The extension retrieves the task result using its task ID.
 6. You review the result and bring it back to ChatGPT. ChatGPT decides the next step; nothing runs automatically without another handoff.
@@ -72,7 +72,7 @@ Open [http://localhost:5678](http://localhost:5678) and complete the initial own
 
 ### 2. Configure the local API
 
-Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs.
+Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. `OPENCLAW_PYTHON` is injected into every task prompt so the agent uses the configured full interpreter path instead of relying on Windows PATH aliases. This setting controls Python used by the OpenClaw agent, not the Python interpreter used to run the FastAPI service.
 
 Install and run:
 
@@ -122,8 +122,9 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 - [x] Local n8n Compose deployment definition
 - [x] Authenticated FastAPI task API with SQLite task tracking
 - [x] Manual extension popup for task submission
-- [ ] Verify OpenClaw CLI invocation and JSON output against the installed Windows version
-- [ ] Add result polling and a copy/return-to-ChatGPT action in the extension
+- [x] Use the supported Gateway-backed `openclaw agent --message-file --json` invocation and parse its final reply
+- [x] Inject the user's Python full-path and execution-only/file-change instructions into every handed-off task
+- [x] Add result polling and a copy/return-to-ChatGPT action in the extension
 - [ ] Add an importable n8n workflow and wire n8n into the task lifecycle
 - [ ] Add automated tests and a one-command local launcher
 - [ ] Add explicit per-task file-diff reporting
@@ -132,7 +133,7 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 
 - Keep `.env`, `api/.env`, tokens, encryption keys, SQLite databases, and execution logs out of Git.
 - Keep the API on `127.0.0.1`.
-- The API passes natural-language tasks to the configured OpenClaw agent. OpenClaw's own tool permissions remain authoritative; this project does not attempt to bypass them.
+- The API passes natural-language tasks to the configured OpenClaw agent through the Gateway-backed CLI and captures its structured JSON result. Every task prompt carries the configured Python interpreter path and instructs the agent not to create or modify files unless the task explicitly requests it. OpenClaw's own tool permissions remain authoritative; this project does not attempt to bypass them.
 - The configured workspace path is included in the agent instruction, but this is not an OS-level filesystem sandbox. Keep OpenClaw's actual filesystem permissions narrow.
 - Do not send secrets or credentials in task text.
 - Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
