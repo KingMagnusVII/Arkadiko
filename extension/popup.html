@@ -1,40 +1,245 @@
 <!doctype html>
 <html lang="en">
-<!-- Popup UI: API settings, task input, status, result display, and copy action. -->
+<!-- Mono/frosted popup inspired by the supplied HaloInput and BorderBeamCard examples. -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenClaw Bridge</title>
-  <!-- Styling is local to this popup; no external assets are loaded. -->
   <style>
-    body { width: 340px; margin: 0; padding: 16px; font: 14px system-ui, sans-serif; color: #17202a; }
-    h1 { margin: 0 0 12px; font-size: 17px; }
-    label { display: block; margin: 10px 0 5px; font-weight: 600; }
-    input, textarea, button { box-sizing: border-box; width: 100%; padding: 9px; font: inherit; }
-    textarea { min-height: 100px; resize: vertical; }
-    button { margin-top: 9px; border: 0; border-radius: 6px; background: #2457d6; color: white; cursor: pointer; }
-    button.secondary { background: #465365; }
-    button:disabled { opacity: .55; cursor: wait; }
-    #status, #result { margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    #result { max-height: 180px; overflow: auto; padding: 8px; background: #f2f4f7; border-radius: 6px; }
-    .hint { color: #667; font-size: 12px; }
+    :root {
+      color-scheme: dark;
+      --bg: #080808;
+      --card: #111111;
+      --card-2: #151515;
+      --text: #f5f5f5;
+      --muted: #8d8d8d;
+      --border: #292929;
+      --beam: #f5f5f5;
+      --field: #0d0d0d;
+      --field-border: #303030;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      width: 380px;
+      margin: 0;
+      padding: 14px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .beam-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: linear-gradient(145deg, #151515, #0d0d0d 58%, #111111);
+      box-shadow: 0 18px 45px rgba(0, 0, 0, .45);
+    }
+
+    .beam-card::before {
+      content: "";
+      position: absolute;
+      inset: -45%;
+      background: conic-gradient(from 0deg, transparent 0 72%, rgba(255,255,255,.9) 76%, transparent 80% 100%);
+      animation: beam 5s linear infinite;
+      pointer-events: none;
+      opacity: .7;
+    }
+
+    .beam-card::after {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      border-radius: 17px;
+      background: linear-gradient(145deg, rgba(20,20,20,.98), rgba(9,9,9,.98));
+      pointer-events: none;
+    }
+
+    .inner { position: relative; z-index: 1; padding: 18px; }
+
+    @keyframes beam {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .beam-card::before { animation: none; }
+    }
+
+    header { margin-bottom: 18px; }
+    .eyebrow {
+      margin: 0 0 5px;
+      color: #aaa;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      letter-spacing: -.035em;
+    }
+    .description {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .section { margin-top: 15px; }
+    label {
+      display: block;
+      margin: 0 0 7px;
+      color: #d5d5d5;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: .02em;
+    }
+
+    /* HaloInput/HaloTextarea-inspired frosted rim. */
+    .halo {
+      position: relative;
+      border-radius: 11px;
+      padding: 1px;
+      background: linear-gradient(135deg, #3a3a3a, #151515 42%, #454545);
+    }
+    .halo::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: 12px;
+      background: radial-gradient(circle at 50% 0%, rgba(255,255,255,.22), transparent 55%);
+      pointer-events: none;
+    }
+    input, textarea {
+      position: relative;
+      display: block;
+      width: 100%;
+      border: 1px solid var(--field-border);
+      border-radius: 10px;
+      outline: none;
+      background: rgba(10,10,10,.96);
+      color: var(--text);
+      font: inherit;
+      transition: border-color .18s, box-shadow .18s;
+    }
+    input { height: 39px; padding: 0 11px; }
+    textarea { min-height: 112px; padding: 10px 11px; resize: vertical; }
+    input::placeholder, textarea::placeholder { color: #656565; }
+    input:focus, textarea:focus {
+      border-color: #777;
+      box-shadow: 0 0 0 3px rgba(255,255,255,.055), 0 0 18px rgba(255,255,255,.08);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 37px;
+      margin-top: 15px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255,255,255,.025);
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      flex: 0 0 7px;
+      border-radius: 50%;
+      background: #777;
+      box-shadow: 0 0 0 3px rgba(255,255,255,.035);
+    }
+    #status { min-width: 0; white-space: pre-wrap; color: #c9c9c9; font-size: 11px; }
+    #status[data-kind="working"] + .dot, #status[data-kind="queued"] + .dot { background: #fff; }
+    #status[data-kind="completed"] + .dot { background: #cfcfcf; }
+    #status[data-kind="failed"] + .dot, #status[data-kind="error"] + .dot { background: #888; }
+
+    #task-meta {
+      margin-top: 8px;
+      color: #686868;
+      font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
+    button {
+      min-height: 38px;
+      border: 1px solid #383838;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #e9e9e9;
+      color: #080808;
+      cursor: pointer;
+      font: 650 12px inherit;
+      transition: transform .15s, background .15s, opacity .15s;
+    }
+    button:hover:not(:disabled) { background: #fff; transform: translateY(-1px); }
+    button.secondary { background: #191919; color: #ddd; }
+    button.secondary:hover:not(:disabled) { background: #242424; }
+    button:disabled { cursor: not-allowed; opacity: .4; transform: none; }
+
+    #result {
+      max-height: 190px;
+      overflow: auto;
+      margin: 11px 0 0;
+      padding: 11px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #090909;
+      color: #d4d4d4;
+      font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    #copy { width: 100%; margin-top: 8px; }
+    .footer { margin-top: 12px; color: #555; font-size: 10px; text-align: center; }
   </style>
 </head>
 <body>
-  <!-- The user reviews the task and explicitly clicks Send; there is no automatic handoff. -->
-  <h1>OpenClaw Bridge</h1>
-  <p class="hint">Manual handoff. Review the task before sending; nothing runs automatically.</p>
-  <label for="endpoint">Local API URL</label>
-  <input id="endpoint" value="http://127.0.0.1:8765">
-  <label for="token">Bridge token</label>
-  <input id="token" type="password" autocomplete="off" placeholder="Local API token">
-  <label for="task">Task</label>
-  <textarea id="task" placeholder="Describe what OpenClaw should do..."></textarea>
-  <button id="send">Send task to OpenClaw</button>
-  <button id="check" class="secondary" disabled>Check latest result</button>
-  <div id="status" role="status" aria-live="polite"></div>
-  <pre id="result" hidden></pre>
-  <button id="copy" class="secondary" hidden>Copy report for ChatGPT</button>
+  <section class="beam-card">
+    <div class="inner">
+      <header>
+        <p class="eyebrow">Local execution bridge</p>
+        <h1>OpenClaw Bridge</h1>
+        <p class="description">Review a task, send it to OpenClaw, and check its result whenever you want.</p>
+      </header>
+
+      <section class="section">
+        <label for="endpoint">Local API URL</label>
+        <div class="halo"><input id="endpoint" value="http://127.0.0.1:8765" autocomplete="url"></div>
+      </section>
+
+      <section class="section">
+        <label for="token">Bridge token</label>
+        <div class="halo"><input id="token" type="password" autocomplete="off" placeholder="Local API token"></div>
+      </section>
+
+      <section class="section">
+        <label for="task">Task</label>
+        <div class="halo"><textarea id="task" placeholder="Describe what OpenClaw should do..."></textarea></div>
+      </section>
+
+      <div class="actions">
+        <button id="send" type="button">Send to OpenClaw</button>
+        <button id="check" class="secondary" type="button" disabled>Check result</button>
+      </div>
+
+      <div class="status-row">
+        <span class="dot" aria-hidden="true"></span>
+        <div id="status" role="status" aria-live="polite">Ready.</div>
+      </div>
+      <div id="task-meta">No active task</div>
+
+      <pre id="result" hidden></pre>
+      <button id="copy" class="secondary" type="button" hidden>Copy report for ChatGPT</button>
+
+      <div class="footer">Manual handoff · loopback only · nothing runs automatically</div>
+    </div>
+  </section>
   <script src="popup.js"></script>
 </body>
 </html>
