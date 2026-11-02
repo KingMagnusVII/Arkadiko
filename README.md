@@ -139,6 +139,10 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 - Do not send secrets or credentials in task text.
 - Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
 
+## Detailed code reference
+
+See [BRIDGE_REFERENCE.md](BRIDGE_REFERENCE.md) for the complete feature inventory, every file's purpose, inputs and outputs, the function/class inventory, API contracts, task lifecycle, security boundaries and known gaps.
+
 ## Documentation
 
 - [n8n self-hosting](https://docs.n8n.io/deploy/)
