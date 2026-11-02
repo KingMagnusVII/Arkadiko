@@ -50,8 +50,7 @@
     enabled = !enabled;
     await chrome.storage.local.set({ bridgeRunning: enabled });
     paint();
-    if (enabled) scan(document.documentElement);
-    else if (currentTask) currentTask.returnAllowed = false;
+    if (!enabled && currentTask) currentTask.returnAllowed = false;
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -59,7 +58,6 @@
       enabled = changes.bridgeRunning.newValue === true;
       if (!enabled && currentTask) currentTask.returnAllowed = false;
       paint();
-      if (enabled) scan(document.documentElement);
     }
   });
 
@@ -116,6 +114,7 @@
       const config = await settings();
       if (!config.token) throw new Error("Bridge token missing. Configure it from the extension popup.");
       const headers = { "Content-Type": "application/json", Authorization: "Bearer " + config.token };
+      if (!enabled || !state.returnAllowed) return;
       const submitted = await fetch(config.endpoint + "/v1/tasks", {
         method: "POST", headers, body: JSON.stringify({ task })
       });
