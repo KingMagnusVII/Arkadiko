@@ -1,8 +1,8 @@
 # OpenClaw ChatGPT Bridge
 
-A local-first bridge for manually handing a task from a ChatGPT browser session to OpenClaw running on Windows, then bringing the execution report back into the conversation.
+A local-first bridge that lets a user arm automatic, explicitly marked task handoffs from ChatGPT to OpenClaw running on Windows, then returns execution reports to the same conversation.
 
-> Status: early implementation (v0.2). The API now uses the supported Gateway-backed agent CLI and injects the user's persistent execution rules; n8n workflow orchestration and in-page ChatGPT handoff remain future work.
+> Status: early implementation (v0.3). The extension adds an in-page Run/Stop control. Automation is stopped by default and only assistant messages containing the explicit `[[OPENCLAW_TASK]] ... [[/OPENCLAW_TASK]]` block are eligible for execution.
 
 ## Intended workflow
 
