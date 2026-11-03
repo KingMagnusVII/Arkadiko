@@ -20,7 +20,8 @@
   // Match the previously working diagnostic capture timing.
   const DEBOUNCE_MS = 500;
   const SCAN_INTERVAL_MS = 1200;
-  const TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/gi;
+  // ChatGPT may expose literal tag brackets as HTML-escaped text in rendered content.
+  const TAG_RE = /(?:<|&lt;)OpenClaw(?:>|&gt;)([\s\S]*?)(?:<\/|&lt;\/)OpenClaw(?:>|&gt;)/gi;
 
   let enabled = false;
   let stateReady = false;
