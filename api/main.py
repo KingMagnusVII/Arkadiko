@@ -1,8 +1,8 @@
-"""Local FastAPI relay between the browser extension and the OpenClaw agent CLI.
+"""Arkadiko's local FastAPI relay between the browser extension and OpenClaw.
 
-The module owns task validation, bearer-token authentication, SQLite persistence,
-prompt construction, subprocess execution, timeout handling, and result retrieval.
-It deliberately does not alter OpenClaw pairing or execution-approval settings.
+The API validates and authenticates task requests, stores task state in SQLite,
+runs the Gateway-backed OpenClaw CLI, and exposes the result for the extension.
+It intentionally does not change OpenClaw pairing, tool permissions, or approvals.
 """
 
 from __future__ import annotations
@@ -23,12 +23,12 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-# Resolve configuration relative to this source file, then fall back to the repo root.
+# Resolve configuration files relative to the repository instead of the caller's current directory.
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 load_dotenv(BASE_DIR.parent / ".env")
 
-# Runtime configuration is loaded once when this module is imported.
+# Read runtime settings once at import time; restart Uvicorn after changing api/.env.
 TOKEN = os.getenv("BRIDGE_API_TOKEN", "")
 OPENCLAW_COMMAND = os.getenv("OPENCLAW_COMMAND", "openclaw")
 OPENCLAW_ENTRYPOINT = os.getenv("OPENCLAW_ENTRYPOINT", "")
@@ -37,12 +37,14 @@ WORKSPACE = Path(os.getenv("OPENCLAW_WORKSPACE", r"C:\Magnus\Code\DSA")).expandu
 TIMEOUT = max(10, int(os.getenv("OPENCLAW_TIMEOUT_SECONDS", "300")))
 DB_PATH = Path(os.getenv("BRIDGE_DB_PATH", str(BASE_DIR / "bridge.sqlite3"))).resolve()
 
-# FastAPI exposes the HTTP endpoints consumed by extension/popup.js.
-app = FastAPI(title="OpenClaw ChatGPT Bridge API", version="0.2.0")
+# The extension calls these routes to create a task and retrieve its final execution report.
+app = FastAPI(title="Arkadiko Local Bridge API", version="0.3.0")
 
 
 class TaskRequest(BaseModel):
-    """Validated body for POST /v1/tasks; task text is limited to 12,000 chars."""
+    """Validated JSON body for POST /v1/tasks."""
+
+    # Reject empty or excessively large prompts before starting a background process.
     task: str = Field(min_length=1, max_length=12000)
 
 
@@ -52,10 +54,12 @@ def utc_now() -> str:
 
 
 def connect_db() -> sqlite3.Connection:
-    """Open the SQLite ledger and create its tasks table if it is not present."""
+    """Open the SQLite ledger and ensure the task table exists."""
+    # Create the parent folder so a custom BRIDGE_DB_PATH also works on first launch.
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
+    # Keep one row per task, including timestamps and captured process output.
     db.execute(
         """CREATE TABLE IF NOT EXISTS tasks (
             task_id TEXT PRIMARY KEY,
@@ -76,7 +80,7 @@ def connect_db() -> sqlite3.Connection:
 
 @contextmanager
 def db_connection() -> Iterator[sqlite3.Connection]:
-    """Commit on success, roll back on error, and always close the connection."""
+    """Commit successful database work; roll back failures and always close."""
     db = connect_db()
     try:
         yield db
@@ -89,10 +93,12 @@ def db_connection() -> Iterator[sqlite3.Connection]:
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
-    """Reject requests unless their Bearer token matches the configured secret."""
+    """Protect task routes with the Bearer token configured in api/.env."""
+    # Fail closed if the example placeholder was never replaced.
     if not TOKEN or TOKEN.startswith("replace-with-"):
         raise HTTPException(status_code=503, detail="Bridge token is not configured.")
     scheme, _, supplied = (authorization or "").partition(" ")
+    # compare_digest avoids a normal early-exit string comparison for the secret.
     if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, TOKEN):
         raise HTTPException(status_code=401, detail="Invalid bridge token.")
 
@@ -103,20 +109,22 @@ def task_record(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def build_agent_prompt(task: str) -> str:
-    """Pass the submitted task to OpenClaw without adding repository instructions."""
+    """Pass the user's submitted task through unchanged; add no hidden instructions."""
     return task
 
+
 def extract_agent_output(raw_stdout: str) -> tuple[str, str | None]:
-    """Extract the agent's final text and any structured error from CLI JSON."""
-    """Return user-facing final text and a structured CLI error, if present."""
+    """Extract final agent text and any structured error from CLI JSON."""
     try:
         payload = json.loads(raw_stdout)
     except json.JSONDecodeError:
+        # Some CLI versions/configurations may return plain text instead of JSON.
         return raw_stdout, None
 
     if not isinstance(payload, dict):
         return raw_stdout, None
 
+    # Prefer the final response; fall back to concatenating text payloads if needed.
     final_text = payload.get("final")
     if not isinstance(final_text, str):
         parts = payload.get("payloads")
@@ -130,6 +138,7 @@ def extract_agent_output(raw_stdout: str) -> tuple[str, str | None]:
         else:
             final_text = raw_stdout
 
+    # Surface structured agent errors even when the process itself returned valid JSON.
     error = payload.get("error")
     error_text = None
     if isinstance(error, dict):
@@ -145,11 +154,11 @@ def extract_agent_output(raw_stdout: str) -> tuple[str, str | None]:
 
 
 async def run_openclaw(task_id: str, task: str) -> None:
-    """Run one agent turn, persist its outcome, enforce timeout, and clean temp input."""
+    """Execute one task, save its outcome, enforce a deadline, and clean up input."""
     prompt_path: str | None = None
     process: asyncio.subprocess.Process | None = None
 
-    # Mark the task running before preparing and launching the external process.
+    # Mark the task running before doing filesystem or subprocess work.
     with db_connection() as db:
         db.execute(
             "UPDATE tasks SET status='running', started_at=? WHERE task_id=?",
@@ -157,13 +166,14 @@ async def run_openclaw(task_id: str, task: str) -> None:
         )
 
     try:
+        # OpenClaw accepts a message file; this avoids shell quoting and command injection.
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", suffix=".txt", delete=False
         ) as prompt_file:
             prompt_file.write(build_agent_prompt(task))
             prompt_path = prompt_file.name
 
-        # Use the installed OpenClaw CLI through Node when an .mjs entrypoint is set.
+        # Use Node + openclaw.mjs when an explicit .mjs entrypoint is configured.
         command = [OPENCLAW_COMMAND]
         if OPENCLAW_ENTRYPOINT:
             command.append(OPENCLAW_ENTRYPOINT)
@@ -180,13 +190,14 @@ async def run_openclaw(task_id: str, task: str) -> None:
             ]
         )
 
-        # Capture both streams; communicate() drains them and waits for process exit.
+        # Launch without a shell; capture stdout/stderr and use the configured workspace as cwd.
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(WORKSPACE),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # wait_for adds a small grace period beyond OpenClaw's own task timeout.
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             process.communicate(), timeout=TIMEOUT + 15
         )
@@ -194,7 +205,7 @@ async def run_openclaw(task_id: str, task: str) -> None:
         stderr = stderr_bytes.decode("utf-8", errors="replace")
         stdout, agent_error = extract_agent_output(raw_stdout)
 
-        # A zero OS exit code is not enough if the agent JSON itself reports an error.
+        # Treat a structured agent error as failure even if the CLI process exits with code 0.
         success = process.returncode == 0 and agent_error is None
         with connect_db() as db:
             db.execute(
@@ -212,7 +223,7 @@ async def run_openclaw(task_id: str, task: str) -> None:
                 ),
             )
     except asyncio.TimeoutError:
-        # Stop a process that exceeded the configured deadline and record a failed task.
+        # Kill a still-running CLI process when the API-side deadline is exceeded.
         if process is not None and process.returncode is None:
             process.kill()
             await process.communicate()
@@ -222,50 +233,52 @@ async def run_openclaw(task_id: str, task: str) -> None:
                 (utc_now(), f"OpenClaw did not finish within {TIMEOUT} seconds.", task_id),
             )
     except Exception as exc:
+        # Persist unexpected launch/IO errors so the extension can display a useful failure.
         with connect_db() as db:
             db.execute(
                 "UPDATE tasks SET status='failed', completed_at=?, error=? WHERE task_id=?",
                 (utc_now(), f"{type(exc).__name__}: {exc}", task_id),
             )
     finally:
-        # The prompt file contains the submitted task; remove it after every outcome.
+        # The temporary file contains the submitted task text; remove it on every exit path.
         if prompt_path:
             Path(prompt_path).unlink(missing_ok=True)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    """Ensure the task ledger exists before the API accepts requests."""
+    """Prepare the local task database before accepting requests."""
     connect_db()
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    """Unauthenticated liveness endpoint; it does not test OpenClaw connectivity."""
+    """Return API liveness only; this does not test the OpenClaw Gateway."""
     return {"status": "ok", "service": "openclaw-chatgpt-bridge-api"}
 
 
 @app.post("/v1/tasks", dependencies=[Depends(require_token)], status_code=202)
 async def submit_task(body: TaskRequest) -> dict[str, str]:
-    """Persist a queued task, start its background agent run, and return its ID."""
+    """Create a queued task and start its OpenClaw execution in the background."""
     task = body.task.strip()
     if not task:
         raise HTTPException(status_code=422, detail="Task cannot be blank.")
 
     task_id = str(uuid.uuid4())
+    # Persist first so the extension can immediately poll the returned task ID.
     with connect_db() as db:
         db.execute(
             "INSERT INTO tasks(task_id, task, status, created_at) VALUES (?, ?, 'queued', ?)",
             (task_id, task, utc_now()),
         )
-    # Return quickly; the extension polls GET /v1/tasks/{task_id} for completion.
+    # Return HTTP 202 without waiting for the potentially slow model/tool execution.
     asyncio.create_task(run_openclaw(task_id, task))
     return {"task_id": task_id, "status": "queued"}
 
 
 @app.get("/v1/tasks/{task_id}", dependencies=[Depends(require_token)])
 async def get_task(task_id: str) -> dict[str, Any]:
-    """Return the stored task, streams, exit code, timestamps, and error."""
+    """Return one task's status, timestamps, stdout/stderr, exit code, and error."""
     with connect_db() as db:
         row = db.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
     if row is None:
