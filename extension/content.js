@@ -17,9 +17,8 @@
     '[data-turn-key]:has([data-chatgpt-agent-turn-start])'
   ].join(',');
 
-  const DEBOUNCE_MS = 1400;
-  const STABILITY_INTERVAL_MS = 650;
-  const REQUIRED_STABLE_CHECKS = 3;
+  // Match the previously working diagnostic capture timing.
+  const DEBOUNCE_MS = 500;
   const SCAN_INTERVAL_MS = 1200;
   const TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/gi;
 
@@ -207,42 +206,35 @@
   function schedule(node) {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalize(node);
-    if (!captureNode || !isAssistant(captureNode, node) ||
+
+    // Preserve the diagnostic version's assistant check: the normalized
+    // markdown node OR its original enclosing turn may carry the role marker.
+    if (!captureNode || (!isAssistant(captureNode, captureNode) && !isAssistant(node, node)) ||
         historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
 
     const previous = timers.get(captureNode);
     if (previous) clearTimeout(previous);
 
+    // This is deliberately the same simple debounce used by the working
+    // diagnostics. Do not wait on a global Stop button or extra stability loop.
     const timer = setTimeout(async () => {
       if (!enabled || historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
-      let lastText = getText(captureNode);
-      if (!lastText) return;
-      let stableChecks = 0;
-      while (enabled && stableChecks < REQUIRED_STABLE_CHECKS) {
-        await new Promise(resolve => setTimeout(resolve, STABILITY_INTERVAL_MS));
-        if (!enabled) return;
-        const currentText = getText(captureNode);
-        if (generationActive() || currentText !== lastText) {
-          lastText = currentText;
-          stableChecks = 0;
-        } else {
-          stableChecks += 1;
-        }
-      }
-      if (!enabled || generationActive()) return;
       const completeText = getText(captureNode);
-      if (!completeText || seenNodes.has(captureNode)) return;
+      if (!completeText) return;
 
       const tasks = extractTasks(completeText);
       seenNodes.add(captureNode);
-      if (!tasks.length) return;
+      if (!tasks.length) {
+        await reportStatus("New assistant message captured; no <OpenClaw> task tag found.", "completed");
+        return;
+      }
 
       for (const task of tasks) {
         const queuedAt = new Date().toISOString();
         await chrome.storage.local.set({
           bridgeQueuedTask: { task, queuedAt, sourceText: completeText },
           bridgeLastResult: null,
-          bridgeLastStatus: { message: "Tagged task received and queued for OpenClaw.", kind: "queued" }
+          bridgeLastStatus: { message: "Detected <OpenClaw> task tag. Sending to local OpenClaw.", kind: "queued" }
         });
         try {
           const response = await chrome.runtime.sendMessage({
