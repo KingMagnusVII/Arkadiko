@@ -8,7 +8,7 @@ ChatGPT conversation -> user prepares task -> extension popup -> POST /v1/tasks 
 
 The extension is a manual relay, not a native ChatGPT tool. It does not automatically read the ChatGPT conversation. The user must review and click Send, then manually click Check latest result. n8n is an optional local service scaffold and is not called by the current FastAPI task lifecycle.
 
-The configured workspace and prompt instructions are guidance, not an OS-level sandbox. OpenClaw's actual Windows permissions remain the security boundary. The bridge does not configure OpenClaw, pair nodes, change approval policies, or install software.
+The configured working directory is not an OS-level sandbox. The bridge forwards task text unchanged and does not add repository-generated task instructions. OpenClaw's actual Windows permissions remain the security boundary. The bridge does not configure OpenClaw, pair nodes, change approval policies, or install software.
 
 ## 2. Implemented features
 
@@ -89,7 +89,7 @@ Variables read by api/main.py:
 - OPENCLAW_COMMAND: executable used to start CLI; currently node.
 - OPENCLAW_ENTRYPOINT: optional OpenClaw .mjs entrypoint, inserted after Node executable when non-empty.
 - OPENCLAW_AGENT_ID: agent passed to openclaw agent --agent.
-- OPENCLAW_WORKSPACE: subprocess working directory and workspace included in prompt.
+- OPENCLAW_WORKSPACE: subprocess working directory and working directory for the subprocess.
 - OPENCLAW_PYTHON: full Python interpreter path embedded into every agent prompt.
 - OPENCLAW_TIMEOUT_SECONDS: CLI timeout; code enforces minimum 10 seconds.
 Template-only currently: BRIDGE_HOST and BRIDGE_PORT are present, but main.py does not read them. The README Uvicorn command supplies host/port explicitly.
@@ -99,7 +99,7 @@ Outputs: configuration values read when main.py imports.
 Purpose: main FastAPI application and task execution coordinator.
 Inputs: environment values from api/.env and root .env; HTTP requests; OpenClaw CLI JSON stdout/stderr/exit code; configured workspace and temporary prompt file; SQLite database api/bridge.sqlite3 by default or BRIDGE_DB_PATH.
 Outputs: HTTP JSON responses; SQLite task rows; temporary prompt passed to OpenClaw then deleted; captured stdout/stderr/exit code/status/timestamps/error stored in SQLite.
-Configuration constants: BASE_DIR (source directory), TOKEN (API Bearer token), OPENCLAW_COMMAND/ENTRYPOINT/AGENT_ID (CLI settings), WORKSPACE (resolved working directory), PYTHON_EXECUTABLE (prompt interpreter path), TIMEOUT (minimum 10 seconds), DB_PATH (SQLite location).
+Configuration constants: BASE_DIR (source directory), TOKEN (API Bearer token), OPENCLAW_COMMAND/ENTRYPOINT/AGENT_ID (CLI settings), WORKSPACE (resolved working directory), TIMEOUT (minimum 10 seconds), DB_PATH (SQLite location).
 
 Function/class inventory:
 - TaskRequest: input JSON with task string; output validated model; length 1–12,000 characters.
@@ -108,7 +108,7 @@ Function/class inventory:
 - db_connection(): context manager; yields connection, commits on success, rolls back on exception, always closes.
 - require_token(authorization): HTTP Authorization header; returns no value when valid, raises HTTP 503 if token unconfigured or HTTP 401 if missing/invalid.
 - task_record(row): SQLite row input; returns JSON-serializable dictionary.
-- build_agent_prompt(task): user task string input; returns full prompt with workspace, untrusted-task framing, Python path, execution-only default, file-change and reporting rules.
+- build_agent_prompt(task): user task string input; returns the task unchanged, without adding repository instructions.
 - extract_agent_output(raw_stdout): raw CLI stdout input; returns (final_text, error_text_or_none), parsing JSON envelope or preserving plain text.
 - run_openclaw(task_id, task): UUID and task input; async side effects launch CLI, update SQLite, handle timeout/errors and delete temporary prompt.
 - startup(): FastAPI startup event; ensures task table exists.
@@ -128,7 +128,7 @@ HTTP API contract:
 - GET /v1/tasks/{task_id}: same Bearer header; returns task, status, timestamps, stdout, stderr, exit_code and error.
 
 ### api/test_main.py
-Purpose: unit tests for prompt construction and JSON output parsing.
+Purpose: unit tests for exact task pass-through and JSON output parsing.
 Inputs: fixed JSON/plain-text samples and default prompt configuration imported from main.py.
 Outputs: unittest pass/fail results; does not start API server or OpenClaw process.
 Test methods:
@@ -136,7 +136,7 @@ Test methods:
 - test_extracts_payload_text_when_final_is_missing: joins payload text parts with newline.
 - test_reports_structured_agent_error: returns structured error message.
 - test_preserves_non_json_stdout: preserves plain stdout.
-- test_prompt_contains_persistent_execution_rules: checks Python 3.15 path, no-unrequested-edits rule and task text.
+- test_prompt_is_exactly_the_submitted_task: verifies the submitted text is unchanged.\n- test_prompt_does_not_add_workspace_or_execution_rules: verifies no repository-generated instructions are appended.
 Run from api directory: python -m unittest -v test_main.py. This uses API development Python and is separate from the interpreter OpenClaw is instructed to use for DSA scripts.
 
 ### extension/manifest.json
