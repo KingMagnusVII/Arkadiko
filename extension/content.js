@@ -19,7 +19,7 @@
 
   const DEBOUNCE_MS = 500;
   const SCAN_INTERVAL_MS = 1200;
-  const TAG_RE = /(?:<|&lt;)OpenClaw(?:>|&gt;)([\\s\\S]*?)(?:<\\/|&lt;\\/)OpenClaw(?:>|&gt;)/gi;
+  const TAG_RE = /(?:<|&lt;)OpenClaw(?:>|&gt;)([\s\S]*?)(?:<\/|&lt;\/)OpenClaw(?:>|&gt;)/gi;
 
   let enabled = false;
   let stateReady = false;
