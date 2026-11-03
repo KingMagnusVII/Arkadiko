@@ -4,6 +4,7 @@ const status = document.querySelector("#status");
 const taskMeta = document.querySelector("#task-meta");
 const resultBox = document.querySelector("#result");
 const copyButton = document.querySelector("#copy");
+const deleteReportButton = document.querySelector("#delete-report");
 const openButton = document.querySelector("#run");
 const closeButton = document.querySelector("#stop");
 
@@ -33,6 +34,7 @@ function renderLatest(saved) {
     latestReport = lastResult.report;
     resultBox.textContent = lastResult.report;
     copyButton.hidden = false;
+    deleteReportButton.hidden = false;
     taskMeta.textContent = "Latest task · " + (lastResult.receivedAt || "result received");
     return;
   }
@@ -40,12 +42,14 @@ function renderLatest(saved) {
     latestReport = queued.task;
     resultBox.textContent = "QUEUED TASK\n\n" + queued.task;
     copyButton.hidden = false;
+    deleteReportButton.hidden = true;
     taskMeta.textContent = "Latest task received · " + (queued.queuedAt || "queued");
     return;
   }
   latestReport = "";
   resultBox.textContent = "";
   copyButton.hidden = true;
+  deleteReportButton.hidden = true;
 }
 
 function currentSettings() {
@@ -138,6 +142,46 @@ copyButton.addEventListener("click", async () => {
     setStatus("Copied latest task/report.");
   } catch (error) {
     setStatus("Could not copy: " + error.message, "error");
+  }
+});
+
+// Delete only the latest completed/failed report from the API and this popup's saved state.
+deleteReportButton.addEventListener("click", async () => {
+  const saved = await chrome.storage.local.get(["endpoint", "token", "bridgeLastResult"]);
+  const latest = saved.bridgeLastResult;
+  if (!latest?.taskId) {
+    setStatus("There is no finished report to delete.", "error");
+    return;
+  }
+  // Require confirmation because this removes the report from the local SQLite ledger.
+  if (!window.confirm("Delete the latest report? This cannot be undone.")) return;
+  try {
+    const endpoint = (saved.endpoint || "http://127.0.0.1:8765").trim().replace(/\/$/, "");
+    const token = (saved.token || "").trim();
+    if (!token) throw new Error("Add your local Bridge token in the extension popup first.");
+    const response = await fetch(endpoint + "/v1/tasks/" + encodeURIComponent(latest.taskId), {
+      method: "DELETE",
+      headers: { "Authorization": "Bearer " + token }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = payload.detail || response.statusText || "Could not delete the latest report.";
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    // Clear only this latest report and its queued preview; keep connection settings untouched.
+    await chrome.storage.local.set({
+      bridgeLastResult: null,
+      bridgeQueuedTask: null,
+      bridgeLastStatus: { message: "Latest report deleted.", kind: "neutral" }
+    });
+    latestReport = "";
+    resultBox.textContent = "";
+    copyButton.hidden = true;
+    deleteReportButton.hidden = true;
+    taskMeta.textContent = "Latest report deleted.";
+    setStatus("Latest report deleted.");
+  } catch (error) {
+    setStatus("Could not delete report: " + error.message, "error");
   }
 });
 
