@@ -187,6 +187,7 @@ deleteReportButton.addEventListener("click", async () => {
     // Clear only the report/task preview that was just deleted; preserve connection settings and other data.
     await chrome.storage.local.set({
       bridgeLastResult: null,
+      bridgeQueuedTask: null,
       bridgeLastStatus: { message: "Latest report deleted.", kind: "neutral" }
     });
     latestReport = "";
