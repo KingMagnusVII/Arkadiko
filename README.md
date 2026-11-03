@@ -74,6 +74,8 @@ Open [http://localhost:5678](http://localhost:5678) and complete the initial own
 
 Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. The bridge forwards the submitted task text to OpenClaw without adding repository-generated task instructions. Put any interpreter path, working-directory instruction, or execution constraint you want OpenClaw to follow directly in your task.
 
+To change the API's environment settings later, edit the existing values in `api/.env` (not `api/.env.example`) using a text editor. Keep the variable names unchanged, save the file, and restart the FastAPI/Uvicorn process for the new values to load. For example, update `OPENCLAW_WORKSPACE` to change the working folder or `OPENCLAW_ENTRYPOINT` if the installed OpenClaw entrypoint path changes. Do not commit `api/.env` or share its token; the extension's Bridge token must match `BRIDGE_API_TOKEN` in that file.
+
 Install and run:
 
 ```powershell
@@ -133,6 +135,9 @@ Authorization: Bearer <BRIDGE_API_TOKEN>
 - `GET /health` — liveness check.
 - `POST /v1/tasks` — submit a task; returns `202` and a task ID.
 - `GET /v1/tasks/{task_id}` — inspect status and execution result.
+- `DELETE /v1/tasks/{task_id}` — delete one finished task and its report from the local SQLite ledger; queued or running tasks cannot be deleted.
+
+In the extension popup, the bin icon immediately to the right of **Copy latest report** deletes the latest finished report after confirmation. It removes only that task's saved report/ledger entry, not other tasks or project files.
 
 Example request:
 
