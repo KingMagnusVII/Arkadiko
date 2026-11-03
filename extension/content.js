@@ -6,6 +6,7 @@
 
   const SELECTOR = [
     '[data-message-author-role="assistant"]',
+    '[data-conversation-role="assistant"]',
     'article[data-turn="assistant"]',
     'section[data-turn="assistant"]',
     '[data-testid^="conversation-turn-"][data-turn="assistant"]',
@@ -20,15 +21,65 @@
   const STABILITY_INTERVAL_MS = 650;
   const REQUIRED_STABLE_CHECKS = 3;
   const SCAN_INTERVAL_MS = 1200;
-  const TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/gi;
+  const TAG_RE = /<OpenClaw>([\\s\\S]*?)<\\/OpenClaw>/gi;
 
   let enabled = false;
   let stateReady = false;
+  let pendingEnable = null;
   const seenNodes = new WeakSet();
   const historicalNodes = new WeakSet();
   const timers = new WeakMap();
 
-  const getText = node => {
+  function normalize(node) {
+    if (!(node instanceof Element)) return null;
+    if (node.getAttribute("data-message-author-role") === "assistant") return node;
+    if (node.getAttribute("data-conversation-role") === "assistant") return node;
+    if (node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]')) return node;
+
+    if (node.getAttribute("data-turn") === "assistant" ||
+        node.matches('[data-testid^="conversation-turn-"],[data-turn-key]')) {
+      return node.querySelector(
+        '[data-message-author-role="assistant"],' +
+        '[data-conversation-role="assistant"],' +
+        '[data-content-search-unit-key$=":assistant"],' +
+        '[data-chatgpt-search-unit-key$=":assistant"],' +
+        '[data-chatgpt-agent-turn-start],' +
+        '[data-markdown-text-style="assistant-message"]'
+      ) || (node.getAttribute("data-turn") === "assistant" ? node : null);
+    }
+    return node.querySelector?.(
+      '[data-message-author-role="assistant"],[data-conversation-role="assistant"],' +
+      '[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]'
+    ) || null;
+  }
+
+  function isAssistant(node, original = node) {
+    if (!(node instanceof Element)) return false;
+    const roleMatch =
+      node.getAttribute("data-message-author-role") === "assistant" ||
+      node.getAttribute("data-conversation-role") === "assistant" ||
+      node.getAttribute("data-turn") === "assistant" ||
+      node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"],[data-chatgpt-agent-turn-start]');
+
+    if (roleMatch) return true;
+
+    // Some ChatGPT layouts expose the assistant identity on the enclosing turn,
+    // while the normalized markdown node itself has no role attribute.
+    if (original instanceof Element) {
+      if (original.getAttribute("data-turn") === "assistant") return true;
+      if (original.matches('[data-testid^="conversation-turn-"],[data-turn-key]')) {
+        return Boolean(original.querySelector(
+          '[data-message-author-role="assistant"],[data-conversation-role="assistant"],' +
+          '[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"],' +
+          '[data-chatgpt-agent-turn-start]'
+        ));
+      }
+    }
+    return false;
+  }
+
+  function getText(node) {
+    if (!(node instanceof Element)) return "";
     const content = node.querySelector?.(
       '[data-message-author-role="assistant"] .markdown,' +
       '[data-message-author-role="assistant"] .prose,' +
@@ -38,31 +89,11 @@
       '.markdown.prose'
     );
     const source = content || node;
-    return (source.innerText || source.textContent || "").replace(/\u00a0/g, " ").trim();
-  };
-
-  function normalize(node) {
-    if (!(node instanceof Element)) return null;
-    if (node.matches('[data-message-author-role="assistant"],[data-conversation-role="assistant"]')) return node;
-    if (node.matches('[data-turn="assistant"]')) {
-      return node.querySelector('[data-message-author-role="assistant"],[data-conversation-role="assistant"],[data-markdown-text-style="assistant-message"]') || node;
-    }
-    if (node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]')) return node;
-    return node.querySelector?.('[data-message-author-role="assistant"],[data-conversation-role="assistant"],[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]') || null;
-  }
-
-  function isAssistant(node) {
-    return node instanceof Element && (
-      node.getAttribute("data-message-author-role") === "assistant" ||
-      node.getAttribute("data-conversation-role") === "assistant" ||
-      node.getAttribute("data-turn") === "assistant" ||
-      node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]')
-    );
+    return (source.innerText || source.textContent || "").replace(/\\u00a0/g, " ").trim();
   }
 
   function generationActive() {
-    const controls = Array.from(document.querySelectorAll('button'));
-    return controls.some(button => {
+    return Array.from(document.querySelectorAll("button")).some(button => {
       const label = (button.getAttribute("aria-label") || "").toLowerCase();
       const testId = (button.getAttribute("data-testid") || "").toLowerCase();
       const text = (button.innerText || button.textContent || "").trim().toLowerCase();
@@ -85,42 +116,28 @@
   function seedHistory() {
     for (const element of document.querySelectorAll(SELECTOR)) {
       const node = normalize(element);
-      if (node) historicalNodes.add(node);
+      if (node && isAssistant(node, element)) historicalNodes.add(node);
     }
   }
 
   async function reportStatus(message, kind = "neutral", extra = {}) {
-    await chrome.storage.local.set({
-      bridgeLastStatus: { message, kind, ...extra }
-    });
+    await chrome.storage.local.set({ bridgeLastStatus: { message, kind, ...extra } });
   }
 
-  function setEnabled(next) {
+  async function setEnabled(next) {
+    if (!stateReady) {
+      pendingEnable = next === true;
+      return { ok: true, enabled: pendingEnable, waitingForInitialization: true };
+    }
     enabled = next === true;
     if (enabled) seedHistory();
-    chrome.storage.local.set({ bridgeRunning: enabled });
-    reportStatus(
+    await chrome.storage.local.set({ bridgeRunning: enabled });
+    await reportStatus(
       enabled ? "Bridge open. Waiting for tagged assistant tasks." : "Bridge closed. New tasks will not be sent.",
       enabled ? "working" : "neutral"
     );
     return { ok: true, enabled };
   }
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type === "openclaw-bridge-open") {
-      sendResponse(setEnabled(true));
-      return false;
-    }
-    if (message?.type === "openclaw-bridge-close") {
-      sendResponse(setEnabled(false));
-      return false;
-    }
-    if (message?.type === "openclaw-bridge-insert-result") {
-      insertResultIntoChat(message.report).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
-      return true;
-    }
-    return false;
-  });
 
   async function insertResultIntoChat(report) {
     const composer = document.querySelector('#prompt-textarea,[contenteditable="true"][data-testid="prompt-textarea"],[contenteditable="true"].ProseMirror');
@@ -145,16 +162,54 @@
     return { ok: true, submitted: true };
   }
 
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "openclaw-bridge-open") {
+      setEnabled(true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    if (message?.type === "openclaw-bridge-close") {
+      setEnabled(false).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    if (message?.type === "openclaw-bridge-insert-result") {
+      insertResultIntoChat(message.report).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    return false;
+  });
+
   chrome.storage.local.get(["bridgeRunning"]).then(saved => {
     enabled = saved.bridgeRunning === true;
     stateReady = true;
     if (enabled) seedHistory();
-  }).catch(() => { stateReady = true; });
+    if (pendingEnable !== null) {
+      const requested = pendingEnable;
+      pendingEnable = null;
+      setEnabled(requested).catch(error => reportStatus("Bridge state error: " + error.message, "error"));
+    }
+  }).catch(error => {
+    stateReady = true;
+    reportStatus("Could not initialize bridge state: " + error.message, "error");
+    if (pendingEnable !== null) {
+      const requested = pendingEnable;
+      pendingEnable = null;
+      setEnabled(requested).catch(() => {});
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.bridgeRunning && stateReady) {
+      enabled = changes.bridgeRunning.newValue === true;
+      if (enabled) seedHistory();
+    }
+  });
 
   function schedule(node) {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalize(node);
-    if (!captureNode || !isAssistant(captureNode) || historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
+    if (!captureNode || !isAssistant(captureNode, node) ||
+        historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
+
     const previous = timers.get(captureNode);
     if (previous) clearTimeout(previous);
 
@@ -177,11 +232,11 @@
       if (!enabled || generationActive()) return;
       const completeText = getText(captureNode);
       if (!completeText || seenNodes.has(captureNode)) return;
+
       const tasks = extractTasks(completeText);
       seenNodes.add(captureNode);
       if (!tasks.length) return;
 
-      // The popup always retains the newest complete tagged task as the queued item.
       for (const task of tasks) {
         const queuedAt = new Date().toISOString();
         await chrome.storage.local.set({
@@ -224,7 +279,7 @@
   function attachObserver() {
     if (document.documentElement) observer.observe(document.documentElement, {
       childList: true, subtree: true, characterData: true, attributes: true,
-      attributeFilter: ["data-turn", "data-testid", "data-message-author-role", "data-conversation-role"]
+      attributeFilter: ["data-turn", "data-testid", "data-message-author-role", "data-conversation-role", "data-turn-key"]
     });
   }
   attachObserver();
