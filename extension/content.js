@@ -186,6 +186,7 @@
         const queuedAt = new Date().toISOString();
         await chrome.storage.local.set({
           bridgeQueuedTask: { task, queuedAt, sourceText: completeText },
+          bridgeLastResult: null,
           bridgeLastStatus: { message: "Tagged task received and queued for OpenClaw.", kind: "queued" }
         });
         try {
