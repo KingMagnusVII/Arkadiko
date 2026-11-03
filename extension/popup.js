@@ -172,7 +172,7 @@ deleteReportButton.addEventListener("click", async () => {
   // Require an explicit confirmation because deletion removes the stored report from SQLite.
   if (!window.confirm("Delete the latest report? This cannot be undone.")) return;
   try {
-    const endpoint = (saved.endpoint || "http://127.0.0.1:8765").trim().replace(/\\/$/, "");
+    const endpoint = (saved.endpoint || "http://127.0.0.1:8765").trim().replace(/\/$/, "");
     const token = (saved.token || "").trim();
     if (!token) throw new Error("Add your local Bridge token in the extension popup first.");
     const response = await fetch(endpoint + "/v1/tasks/" + encodeURIComponent(latest.taskId), {
