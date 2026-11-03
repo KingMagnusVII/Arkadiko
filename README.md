@@ -86,7 +86,32 @@ Check [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health).
 
 The API intentionally binds to loopback. Do not change it to `0.0.0.0` or expose it publicly without a separately reviewed network security design.
 
-### 3. Load the extension
+### 3. Run the bridge from VS Code
+
+Open the repository in VS Code and start the local FastAPI bridge from the integrated PowerShell terminal:
+
+```powershell
+cd C:\Magnus\Code\OpenClaw-ChatGPT-Bridge
+.venv\Scripts\python.exe -m uvicorn main:app --app-dir api --host 127.0.0.1 --port 8765
+```
+
+Keep this terminal running while using the browser extension. The bridge should be available at `http://127.0.0.1:8765`.
+
+To verify that the bridge is running, open another VS Code terminal and run:
+
+```powershell
+curl http://127.0.0.1:8765/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"openclaw-chatgpt-bridge-api"}
+```
+
+This starts the local FastAPI bridge; it does not start the OpenClaw Gateway itself.
+
+### 4. Load the extension
 
 1. Open `chrome://extensions` (or your Chromium browser's equivalent).
 2. Enable Developer mode.
