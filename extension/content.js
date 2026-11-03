@@ -20,7 +20,7 @@
   const CAPTURE_DELAY_MS = 500;
   const FALLBACK_SCAN_MS = 1200;
   const MAX_CAPTURED_MESSAGES = 10;
-  const OPENCLAW_TAG_RE = /<OpenClaw>([\\s\\S]*?)<\\/OpenClaw>/i;
+  const OPENCLAW_TAG_RE = /<OpenClaw>([\s\\S]*?)<\/OpenClaw>/i;
 
   const lastSeenText = new WeakMap();
   const pendingTimers = new WeakMap();
@@ -130,7 +130,7 @@
       '.markdown.prose'
     );
     const source = content || node;
-    return (source.innerText || source.textContent || '').replace(/\\u00a0/g, ' ').trim();
+    return (source.innerText || source.textContent || '').replace(/\u00a0/g, ' ').trim();
   }
 
   // Take a snapshot of the conversation at the instant capture is armed.
