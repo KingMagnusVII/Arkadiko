@@ -1,3 +1,6 @@
+// Arkadiko popup controller: restores settings, opens/closes the bridge, and displays the latest report.
+
+// Cache references to popup elements once; the popup document is recreated whenever it is opened.
 const endpointInput = document.querySelector("#endpoint");
 const tokenInput = document.querySelector("#token");
 const status = document.querySelector("#status");
@@ -7,15 +10,18 @@ const copyButton = document.querySelector("#copy");
 const openButton = document.querySelector("#run");
 const closeButton = document.querySelector("#stop");
 
+// Prevent edits from racing the initial storage restore, and serialize settings writes.
 let restoreComplete = false;
 let settingsWrite = Promise.resolve();
 let latestReport = "";
 
+// Update the accessible status text and its visual state.
 function setStatus(message, kind = "neutral") {
   status.textContent = message || "Ready.";
   status.dataset.kind = kind;
 }
 
+// Keep the Open/Close buttons and helper text consistent with the persisted bridge state.
 function paintBridgeOpen(open) {
   openButton.dataset.active = String(open);
   closeButton.dataset.active = String(!open);
@@ -26,6 +32,7 @@ function paintBridgeOpen(open) {
     : "Bridge closed · new tagged tasks will not be sent.";
 }
 
+// Display the most recent completed report, or the latest queued task if no report exists yet.
 function renderLatest(saved) {
   const queued = saved.bridgeQueuedTask;
   const lastResult = saved.bridgeLastResult;
@@ -48,6 +55,7 @@ function renderLatest(saved) {
   copyButton.hidden = true;
 }
 
+// Read the current endpoint and token fields in the normalized format used by the service worker.
 function currentSettings() {
   return {
     endpoint: endpointInput.value.trim().replace(/\/$/, ""),
@@ -55,6 +63,7 @@ function currentSettings() {
   };
 }
 
+// Persist settings in order so rapid keystrokes cannot finish out of order.
 function persistSettings(showConfirmation = false) {
   if (!restoreComplete) return settingsWrite;
   settingsWrite = settingsWrite.catch(() => {})
@@ -64,11 +73,13 @@ function persistSettings(showConfirmation = false) {
   return settingsWrite;
 }
 
+// Return the active browser tab, or null if no tab is active.
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0] || null;
 }
 
+// Send Open/Close commands to the content script in the active ChatGPT tab.
 async function sendBridgeCommand(type) {
   const tab = await getActiveTab();
   if (!tab?.id || !/^https:\/\/chatgpt\.com\//.test(tab.url || "")) {
@@ -83,6 +94,7 @@ async function sendBridgeCommand(type) {
   }
 }
 
+// Restore saved connection settings, bridge state, and the latest task/report when the popup opens.
 async function restore() {
   try {
     const saved = await chrome.storage.local.get([
@@ -100,11 +112,13 @@ async function restore() {
   }
 }
 
+// Save endpoint/token changes as the user edits them; confirm when a field loses focus.
 endpointInput.addEventListener("input", () => persistSettings());
 tokenInput.addEventListener("input", () => persistSettings());
 endpointInput.addEventListener("change", () => persistSettings(true));
 tokenInput.addEventListener("change", () => persistSettings(true));
 
+// Open Bridge is an explicit user action; the content script then watches only new assistant turns.
 openButton.addEventListener("click", async () => {
   try {
     await persistSettings();
@@ -117,6 +131,7 @@ openButton.addEventListener("click", async () => {
   }
 });
 
+// Close Bridge stops new task detection/handoffs without deleting saved settings or reports.
 closeButton.addEventListener("click", async () => {
   try {
     await sendBridgeCommand("openclaw-bridge-close");
@@ -131,6 +146,7 @@ closeButton.addEventListener("click", async () => {
   }
 });
 
+// Copy the latest queued task or execution report for manual use.
 copyButton.addEventListener("click", async () => {
   if (!latestReport) return;
   try {
@@ -141,6 +157,7 @@ copyButton.addEventListener("click", async () => {
   }
 });
 
+// Keep the popup view synchronized when the service worker/content script changes shared storage.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.bridgeRunning) paintBridgeOpen(changes.bridgeRunning.newValue === true);
@@ -152,4 +169,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// Initialize controls and saved state after the popup DOM is ready.
 restore();
