@@ -5,9 +5,6 @@
   if (window.__openClawBridgeLoaded) return;
   window.__openClawBridgeLoaded = true;
 
-  // ChatGPT has multiple DOM renderers. The newer signed-in renderer groups
-  // user/assistant content under a stable [data-turn-key] and exposes semantic
-  // search-unit keys ending in :assistant.
   const ASSISTANT_SELECTOR = [
     '[data-message-author-role="assistant"]',
     'article[data-turn="assistant"]',
@@ -79,6 +76,49 @@
     }
   }
 
+  async function setCaptureState(nextEnabled, source) {
+    enabled = nextEnabled === true;
+    await chrome.storage.local.set({
+      bridgeRunning: enabled,
+      bridgeLastStatus: {
+        message: enabled
+          ? 'Read-only capture armed. Nothing will be sent to OpenClaw.'
+          : 'Capture stopped. No messages are being inspected.',
+        kind: enabled ? 'working' : 'neutral'
+      }
+    });
+    await saveDiagnostics({ lastEvent: source || (enabled ? 'capture-enabled' : 'capture-disabled') });
+    if (enabled && stateReady) scanAllAssistantMessages('capture-enabled-scan');
+    return { ok: true, captureArmed: enabled };
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message?.type) return false;
+
+    if (message.type === 'openclaw-bridge-start-capture') {
+      setCaptureState(true, 'capture-enabled-by-popup')
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    if (message.type === 'openclaw-bridge-stop-capture') {
+      setCaptureState(false, 'capture-disabled-by-popup')
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    if (message.type === 'openclaw-bridge-get-diagnostics') {
+      saveDiagnostics({ lastEvent: 'diagnostics-requested' })
+        .then(() => sendResponse({ ok: true }))
+        .catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    return false;
+  });
+
   chrome.storage.local.get(['bridgeRunning', 'bridgeCaptureLog']).then(saved => {
     enabled = saved.bridgeRunning === true;
     captureLog = Array.isArray(saved.bridgeCaptureLog) ? saved.bridgeCaptureLog : [];
@@ -91,11 +131,13 @@
     saveDiagnostics({ lastError: 'Could not read extension storage: ' + error.message });
   });
 
+  // Keep storage-based state synchronization as a fallback, but popup commands
+  // now also arm/disarm this exact tab directly.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes.bridgeRunning) {
       enabled = changes.bridgeRunning.newValue === true;
-      saveDiagnostics({ lastEvent: enabled ? 'capture-enabled' : 'capture-disabled' });
+      saveDiagnostics({ lastEvent: enabled ? 'capture-enabled-storage' : 'capture-disabled-storage' });
       if (enabled && stateReady) scanAllAssistantMessages('capture-enabled-scan');
     }
     if (changes.bridgeCaptureLog && Array.isArray(changes.bridgeCaptureLog.newValue)) {
@@ -145,7 +187,7 @@
     }
     if (node.matches('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]')) return node;
     if (node.matches('[data-turn-key]')) {
-      return node.querySelector('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"], [data-conversation-role="assistant"], [data-chatgpt-agent-turn-start"]') || node;
+      return node.querySelector('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"], [data-conversation-role="assistant"], [data-chatgpt-agent-turn-start"], [data-markdown-text-style="assistant-message"]') || node;
     }
     const roleNode = node.querySelector?.('[data-message-author-role="assistant"], [data-conversation-role="assistant"], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]');
     return roleNode || null;
