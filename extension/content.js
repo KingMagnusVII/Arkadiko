@@ -17,10 +17,8 @@
     '[data-turn-key]:has([data-chatgpt-agent-turn-start])'
   ].join(',');
 
-  // Match the previously working diagnostic capture timing.
   const DEBOUNCE_MS = 500;
   const SCAN_INTERVAL_MS = 1200;
-  // ChatGPT may expose literal tag brackets as HTML-escaped text in rendered content.
   const TAG_RE = /(?:<|&lt;)OpenClaw(?:>|&gt;)([\s\S]*?)(?:<\/|&lt;\/)OpenClaw(?:>|&gt;)/gi;
 
   let enabled = false;
@@ -35,16 +33,12 @@
     if (node.getAttribute("data-message-author-role") === "assistant") return node;
     if (node.getAttribute("data-conversation-role") === "assistant") return node;
     if (node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"]')) return node;
-
     if (node.getAttribute("data-turn") === "assistant" ||
         node.matches('[data-testid^="conversation-turn-"],[data-turn-key]')) {
       return node.querySelector(
-        '[data-message-author-role="assistant"],' +
-        '[data-conversation-role="assistant"],' +
-        '[data-content-search-unit-key$=":assistant"],' +
-        '[data-chatgpt-search-unit-key$=":assistant"],' +
-        '[data-chatgpt-agent-turn-start],' +
-        '[data-markdown-text-style="assistant-message"]'
+        '[data-message-author-role="assistant"],[data-conversation-role="assistant"],' +
+        '[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"],' +
+        '[data-chatgpt-agent-turn-start],[data-markdown-text-style="assistant-message"]'
       ) || (node.getAttribute("data-turn") === "assistant" ? node : null);
     }
     return node.querySelector?.(
@@ -60,11 +54,7 @@
       node.getAttribute("data-conversation-role") === "assistant" ||
       node.getAttribute("data-turn") === "assistant" ||
       node.matches('[data-content-search-unit-key$=":assistant"],[data-chatgpt-search-unit-key$=":assistant"],[data-chatgpt-agent-turn-start]');
-
     if (roleMatch) return true;
-
-    // Some ChatGPT layouts expose the assistant identity on the enclosing turn,
-    // while the normalized markdown node itself has no role attribute.
     if (original instanceof Element) {
       if (original.getAttribute("data-turn") === "assistant") return true;
       if (original.matches('[data-testid^="conversation-turn-"],[data-turn-key]')) {
@@ -85,21 +75,10 @@
       '[data-message-author-role="assistant"] .prose,' +
       '[data-markdown-text-style="assistant-message"],' +
       '[data-conversation-role="assistant"] .markdown,' +
-      '[data-conversation-role="assistant"] .prose,' +
-      '.markdown.prose'
+      '[data-conversation-role="assistant"] .prose,.markdown.prose'
     );
     const source = content || node;
     return (source.innerText || source.textContent || "").replace(/\u00a0/g, " ").trim();
-  }
-
-  function generationActive() {
-    return Array.from(document.querySelectorAll("button")).some(button => {
-      const label = (button.getAttribute("aria-label") || "").toLowerCase();
-      const testId = (button.getAttribute("data-testid") || "").toLowerCase();
-      const text = (button.innerText || button.textContent || "").trim().toLowerCase();
-      return testId.includes("stop") || label.includes("stop generating") ||
-        label.includes("stop streaming") || text === "stop";
-    });
   }
 
   function extractTasks(text) {
@@ -139,27 +118,107 @@
     return { ok: true, enabled };
   }
 
-  async function insertResultIntoChat(report) {
-    const composer = document.querySelector('#prompt-textarea,[contenteditable="true"][data-testid="prompt-textarea"],[contenteditable="true"].ProseMirror');
-    if (!composer) throw new Error("Could not find the ChatGPT message composer.");
-    composer.focus();
-    const text = String(report || "");
-    if ("value" in composer) {
-      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(composer), "value")?.set;
-      if (setter) setter.call(composer, text);
-      else composer.value = text;
-      composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-    } else {
-      composer.replaceChildren();
-      composer.focus();
-      document.execCommand("insertText", false, text);
-      composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  function findComposer() {
+    return document.querySelector(
+      '#prompt-textarea,[data-testid="prompt-textarea"],' +
+      'textarea[placeholder],[contenteditable="true"].ProseMirror,' +
+      '[contenteditable="true"][role="textbox"]'
+    );
+  }
+
+  function composerText(composer) {
+    if (!composer) return "";
+    return "value" in composer ? String(composer.value || "") : String(composer.innerText || composer.textContent || "");
+  }
+
+  function findSendButton() {
+    return document.querySelector(
+      'button[data-testid="send-button"],' +
+      'button[aria-label="Send prompt"],' +
+      'button[aria-label^="Send"],' +
+      'form button[type="submit"]:not([disabled])'
+    );
+  }
+
+  async function waitFor(predicate, timeoutMs, failureMessage) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const value = predicate();
+      if (value) return value;
+      await sleep(120);
     }
-    await new Promise(resolve => setTimeout(resolve, 250));
-    const send = document.querySelector('button[data-testid="send-button"],button[aria-label="Send prompt"]');
-    if (!send || send.disabled) throw new Error("Result was placed in the composer, but ChatGPT's Send button was unavailable.");
+    throw new Error(failureMessage);
+  }
+
+  function setComposerText(composer, text) {
+    composer.focus();
+    if ("value" in composer) {
+      const prototype = Object.getPrototypeOf(composer);
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      if (!setter) throw new Error("Could not access the ChatGPT composer value setter.");
+      setter.call(composer, text);
+      composer.dispatchEvent(new Event("input", { bubbles: true }));
+      composer.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      // Use the editor's native editing command so its framework receives a real
+      // input event; do not replace React/Lexical-managed editor child nodes.
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(composer);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      if (!document.execCommand("insertText", false, text)) {
+        throw new Error("ChatGPT rejected text insertion into its message editor.");
+      }
+      composer.dispatchEvent(new InputEvent("input", {
+        bubbles: true, inputType: "insertText", data: text
+      }));
+    }
+    const actual = composerText(composer).trim();
+    if (!actual || (!actual.includes(text.slice(0, Math.min(80, text.length))) && actual.length < text.length * 0.7)) {
+      throw new Error("ChatGPT did not accept the full execution report in its composer.");
+    }
+  }
+
+  async function insertResultIntoChat(report) {
+    if (!enabled) throw new Error("The bridge is closed; automatic report submission is disabled.");
+    const text = String(report || "").trim();
+    if (!text) throw new Error("OpenClaw returned an empty report.");
+    const composer = await waitFor(
+      findComposer, 8000,
+      "Could not find ChatGPT's message editor. Keep the original ChatGPT tab open and try again."
+    );
+
+    // Never overwrite a draft the user has already started typing.
+    if (composerText(composer).trim()) {
+      throw new Error("ChatGPT's composer already contains a draft. The report was not sent to avoid overwriting it.");
+    }
+
+    setComposerText(composer, text);
+    const send = await waitFor(() => {
+      const button = findSendButton();
+      return button && !button.disabled && button.getAttribute("aria-disabled") !== "true" ? button : null;
+    }, 5000, "The report is in ChatGPT's composer, but its Send button never became available.");
+
     send.click();
-    return { ok: true, submitted: true };
+
+    // Confirm the UI consumed the draft (usually it clears immediately and the
+    // new user turn appears). A click alone is not proof of submission.
+    await waitFor(() => {
+      const current = findComposer();
+      const cleared = current && !composerText(current).trim();
+      const generating = Array.from(document.querySelectorAll("button")).some(button => {
+        const label = (button.getAttribute("aria-label") || "").toLowerCase();
+        const testId = (button.getAttribute("data-testid") || "").toLowerCase();
+        return testId.includes("stop") || label.includes("stop generating") || label.includes("stop streaming");
+      });
+      return cleared || generating;
+    }, 10000, "Clicked Send, but ChatGPT did not confirm that it accepted the report. Check the conversation before retrying to avoid duplicates.");
+
+    await reportStatus("OpenClaw report submitted automatically to this ChatGPT conversation.", "completed");
+    return { ok: true, submitted: true, confirmed: true };
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -207,29 +266,20 @@
   function schedule(node) {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalize(node);
-
-    // Preserve the diagnostic version's assistant check: the normalized
-    // markdown node OR its original enclosing turn may carry the role marker.
     if (!captureNode || (!isAssistant(captureNode, captureNode) && !isAssistant(node, node)) ||
         historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
-
     const previous = timers.get(captureNode);
     if (previous) clearTimeout(previous);
-
-    // This is deliberately the same simple debounce used by the working
-    // diagnostics. Do not wait on a global Stop button or extra stability loop.
     const timer = setTimeout(async () => {
       if (!enabled || historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
       const completeText = getText(captureNode);
       if (!completeText) return;
-
       const tasks = extractTasks(completeText);
       seenNodes.add(captureNode);
       if (!tasks.length) {
         await reportStatus("New assistant message captured; no <OpenClaw> task tag found.", "completed");
         return;
       }
-
       for (const task of tasks) {
         const queuedAt = new Date().toISOString();
         await chrome.storage.local.set({
@@ -239,9 +289,7 @@
         });
         try {
           const response = await chrome.runtime.sendMessage({
-            type: "openclaw-bridge-submit-task",
-            task,
-            pageUrl: location.href
+            type: "openclaw-bridge-submit-task", task, pageUrl: location.href
           });
           if (!response?.ok) throw new Error(response?.error || "Task submission failed.");
         } catch (error) {
@@ -268,14 +316,10 @@
       inspect(record.target);
     }
   });
-
-  function attachObserver() {
-    if (document.documentElement) observer.observe(document.documentElement, {
-      childList: true, subtree: true, characterData: true, attributes: true,
-      attributeFilter: ["data-turn", "data-testid", "data-message-author-role", "data-conversation-role", "data-turn-key"]
-    });
-  }
-  attachObserver();
+  if (document.documentElement) observer.observe(document.documentElement, {
+    childList: true, subtree: true, characterData: true, attributes: true,
+    attributeFilter: ["data-turn", "data-testid", "data-message-author-role", "data-conversation-role", "data-turn-key"]
+  });
   setInterval(() => {
     if (enabled && stateReady) document.querySelectorAll(SELECTOR).forEach(schedule);
   }, SCAN_INTERVAL_MS);
