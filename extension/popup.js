@@ -14,13 +14,11 @@ let restoreComplete = false;
 let settingsWrite = Promise.resolve();
 let latestCapture = null;
 
-// Update the main status line without inserting HTML from page content.
 function setStatus(message, kind = "neutral") {
   status.textContent = message;
   status.dataset.kind = kind;
 }
 
-// Reflect the stored capture switch in the popup controls.
 function paintRunning(running) {
   runButton.dataset.active = String(running);
   stopButton.dataset.active = String(!running);
@@ -31,7 +29,6 @@ function paintRunning(running) {
     : "Capture is stopped. No messages are read or sent.";
 }
 
-// Render the most recent captured assistant message as plain text.
 function showCapture(log) {
   latestCapture = Array.isArray(log) && log.length ? log[0] : null;
   if (!latestCapture) {
@@ -55,7 +52,6 @@ function showCapture(log) {
   copyButton.hidden = false;
 }
 
-// Show whether the content script loaded, attached its observer, and found messages.
 function showDiagnostics(data) {
   if (!data) {
     diagnosticsBox.textContent = "No content-script diagnostic has arrived yet.\nCheck that the extension is reloaded and this tab is https://chatgpt.com/ .";
@@ -78,7 +74,6 @@ function showDiagnostics(data) {
   diagnosticsBox.textContent = lines.join("\n");
 }
 
-// Persist connection fields as typed; they are retained for later restoration but unused in this trial.
 function currentSettings() {
   return {
     endpoint: endpointInput.value.trim().replace(/\/$/, ""),
@@ -99,7 +94,27 @@ function persistSettings(showConfirmation = false) {
   return settingsWrite;
 }
 
-// Restore popup state and the most recent capture/diagnostics when it opens.
+async function getActiveTab() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tabs[0] || null;
+}
+
+async function sendCaptureCommand(command) {
+  const tab = await getActiveTab();
+  if (!tab?.id) throw new Error("No active browser tab found.");
+  if (!/^https:\/\/chatgpt\.com\//.test(tab.url || "")) {
+    throw new Error("Open the ChatGPT tab first (https://chatgpt.com/).");
+  }
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { type: command });
+    if (response?.ok === false) throw new Error(response.error || "Content script rejected the command.");
+    return response;
+  } catch (error) {
+    throw new Error("Could not reach the ChatGPT content script. Reload the extension and refresh the ChatGPT tab, then try again. " + error.message);
+  }
+}
+
 async function restore() {
   try {
     const saved = await chrome.storage.local.get([
@@ -128,9 +143,11 @@ tokenInput.addEventListener("input", () => persistSettings());
 endpointInput.addEventListener("change", () => persistSettings(true));
 tokenInput.addEventListener("change", () => persistSettings(true));
 
-// Start capture only; no endpoint, token, fetch, or OpenClaw task submission is involved.
+// Arm capture directly in the active ChatGPT content script.
+// This remains read-only: no endpoint, token, fetch, or OpenClaw task submission is involved.
 runButton.addEventListener("click", async () => {
   try {
+    await sendCaptureCommand("openclaw-bridge-start-capture");
     await chrome.storage.local.set({
       bridgeRunning: true,
       bridgeLastStatus: {
@@ -145,17 +162,23 @@ runButton.addEventListener("click", async () => {
   }
 });
 
-// Stop further inspection without deleting previously captured diagnostic text.
+runButton.addEventListener("dblclick", event => event.preventDefault());
+
+// Stop inspection directly in the active ChatGPT content script.
 stopButton.addEventListener("click", async () => {
-  await chrome.storage.local.set({
-    bridgeRunning: false,
-    bridgeLastStatus: { message: "Capture stopped. No messages are being inspected.", kind: "neutral" }
-  });
-  paintRunning(false);
-  setStatus("Capture stopped.");
+  try {
+    await sendCaptureCommand("openclaw-bridge-stop-capture");
+    await chrome.storage.local.set({
+      bridgeRunning: false,
+      bridgeLastStatus: { message: "Capture stopped. No messages are being inspected.", kind: "neutral" }
+    });
+    paintRunning(false);
+    setStatus("Capture stopped.");
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
 });
 
-// Copy only the latest captured assistant message, not the diagnostic wrapper.
 copyButton.addEventListener("click", async () => {
   if (!latestCapture) return;
   try {
@@ -166,7 +189,6 @@ copyButton.addEventListener("click", async () => {
   }
 });
 
-// Keep the open popup synchronized with changes made by the content script.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.bridgeRunning) paintRunning(changes.bridgeRunning.newValue === true);
