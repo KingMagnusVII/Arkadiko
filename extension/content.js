@@ -1,6 +1,7 @@
 // READ-ONLY diagnostic content script.
-// It observes ChatGPT assistant turns and saves their text for the popup.
-// It deliberately contains no API calls and cannot submit work to OpenClaw.
+// It observes ChatGPT assistant turns, captures their text, and detects explicit
+// <OpenClaw>...</OpenClaw> blocks for testing. It deliberately contains no API
+// calls and cannot submit work to OpenClaw.
 (() => {
   if (window.__openClawBridgeLoaded) return;
   window.__openClawBridgeLoaded = true;
@@ -20,6 +21,7 @@
   const CAPTURE_DELAY_MS = 500;
   const FALLBACK_SCAN_MS = 1200;
   const MAX_CAPTURED_MESSAGES = 10;
+  const OPENCLAW_TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/i;
 
   const lastSeenText = new WeakMap();
   const pendingTimers = new WeakMap();
@@ -30,6 +32,7 @@
   let mutationCount = 0;
   let scanCount = 0;
   let captureCount = 0;
+  let tagCount = 0;
   let lastMutationAt = null;
   let observerStarted = false;
 
@@ -40,6 +43,20 @@
       console.error('[OpenClaw Bridge diagnostic] Selector error:', selector, error);
       return [];
     }
+  }
+
+  function findOpenClawTasks(text) {
+    const tasks = [];
+    const source = String(text || '');
+    const flags = 'gi';
+    const matcher = new RegExp(OPENCLAW_TAG_RE.source, flags);
+    let match;
+    while ((match = matcher.exec(source)) !== null) {
+      const task = (match[1] || '').trim();
+      if (task) tasks.push(task);
+      if (match[0].length === 0) matcher.lastIndex += 1;
+    }
+    return tasks;
   }
 
   async function saveDiagnostics(extra = {}) {
@@ -65,6 +82,7 @@
       mutationCount,
       scanCount,
       captureCount,
+      tagCount,
       lastMutationAt,
       ...extra
     };
@@ -208,6 +226,11 @@
       const completeText = getCaptureText(captureNode);
       if (!completeText) return;
 
+      const openClawTasks = findOpenClawTasks(completeText);
+      if (openClawTasks.length) {
+        tagCount += openClawTasks.length;
+      }
+
       const messageId =
         captureNode.getAttribute('data-message-id') ||
         captureNode.getAttribute('data-turn-id') ||
@@ -221,6 +244,8 @@
         messageId,
         characters: completeText.length,
         source,
+        openClawTagDetected: openClawTasks.length > 0,
+        openClawTaskCount: openClawTasks.length,
         text: completeText
       };
 
@@ -233,16 +258,20 @@
         await chrome.storage.local.set({
           bridgeCaptureLog: captureLog,
           bridgeLastStatus: {
-            message: 'Captured assistant message (' + entry.characters + ' characters). Read-only; nothing sent to OpenClaw.',
-            kind: 'completed'
+            message: openClawTasks.length
+              ? 'Detected <OpenClaw> task tag (' + openClawTasks.length + ' task' + (openClawTasks.length === 1 ? '' : 's') + '). Read-only; nothing sent to OpenClaw.'
+              : 'Captured assistant message (' + entry.characters + ' characters). Read-only; nothing sent to OpenClaw.',
+            kind: openClawTasks.length ? 'queued' : 'completed'
           }
         });
         captureCount += 1;
         await saveDiagnostics({
-          lastEvent: 'assistant-message-captured',
+          lastEvent: openClawTasks.length ? 'openclaw-tag-detected' : 'assistant-message-captured',
           lastCapturedCharacters: entry.characters,
           lastCapturedAt: entry.capturedAt,
-          lastCapturedMessageId: messageId || '(not exposed by ChatGPT)'
+          lastCapturedMessageId: messageId || '(not exposed by ChatGPT)',
+          lastOpenClawTagDetected: openClawTasks.length > 0,
+          lastOpenClawTaskCount: openClawTasks.length
         });
       } catch (error) {
         console.error('[OpenClaw Bridge diagnostic] Could not save captured message:', error);
