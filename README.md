@@ -2,7 +2,7 @@
 
 A local-first bridge that lets a user arm automatic, explicitly marked task handoffs from ChatGPT to OpenClaw running on Windows, then returns execution reports to the same conversation.
 
-> Status: early implementation (v0.3). The extension popup contains the Run/Stop controls; no controls are injected into the ChatGPT page. Automation is stopped by default and only assistant messages containing the explicit `[[OPENCLAW_TASK]] ... [[/OPENCLAW_TASK]]` block are eligible for execution.
+> Status: early implementation (v0.3). The extension popup contains the Run/Stop controls; no controls are injected into the ChatGPT page. Automation is stopped by default. When the user opens the bridge, only complete assistant messages containing `<OpenClaw> ... </OpenClaw>` blocks are handed to the local agent.
 
 ## Intended workflow
 
@@ -13,7 +13,7 @@ A local-first bridge that lets a user arm automatic, explicitly marked task hand
 5. The extension retrieves the task result using its task ID.
 6. You review the result and bring it back to ChatGPT. ChatGPT decides the next step; nothing runs automatically without another handoff.
 
-The extension is a manual relay, **not a native ChatGPT tool**. It does not silently read the conversation or automatically execute assistant messages.
+The extension is an explicitly armed relay, **not a native ChatGPT tool**. While open, it watches new assistant turns for complete `<OpenClaw> ... </OpenClaw>` blocks, sends only the text inside those tags to the local API, and returns the execution report to the same ChatGPT conversation. Ordinary assistant messages and messages that existed before the bridge was opened are ignored.
 
 ## Components
 
@@ -117,9 +117,10 @@ This starts the local FastAPI bridge; it does not start the OpenClaw Gateway its
 2. Enable Developer mode.
 3. Choose **Load unpacked** and select this repository's `extension` folder.
 4. Open ChatGPT and click the extension icon.
-5. Enter the local API token and a task, then submit.
+5. Enter the local API token, then choose **Open Bridge**.
+6. Ask ChatGPT for an explicitly tagged task. The complete contents of each `<OpenClaw> ... </OpenClaw>` block are queued and sent to OpenClaw. Choose **Close Bridge** to stop new handoffs.
 
-When armed, the content script watches only assistant messages for the explicit task markers. It ignores ordinary messages and never scans old conversation content when Run is pressed.
+When open, the content script waits for assistant generation to finish and the message text to stabilize before extracting complete tags. The latest received task remains visible in the popup; completed execution reports are also shown there and returned to ChatGPT.
 
 ## API
 
