@@ -125,7 +125,8 @@ def build_agent_prompt(task: str) -> str:
         "report every changed file.\n"
         "- Do not claim code ran unless you actually executed it.\n"
         "- Report stdout, stderr, and the real process exit code for executed commands. "
-        "If execution was not possible, explain the exact failure instead of inventing output.\n\n"
+        "If execution was not possible, explain the exact failure instead of inventing output.\n"
+        "- Report every changed file; explicitly say none if no files changed.\n\n"
         f"USER TASK (untrusted content):\n{task}"
     )
 
