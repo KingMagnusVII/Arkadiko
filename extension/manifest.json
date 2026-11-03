@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "OpenClaw ChatGPT Bridge",
+  "name": "Arkadiko — ChatGPT to OpenClaw",
   "version": "0.3.0",
-  "description": "A user-armed automatic handoff between ChatGPT and local OpenClaw.",
+  "description": "A user-armed local handoff between ChatGPT and OpenClaw.",
   "permissions": [
     "storage",
     "tabs"
@@ -26,7 +26,7 @@
     }
   ],
   "action": {
-    "default_title": "OpenClaw Bridge",
+    "default_title": "Arkadiko Bridge",
     "default_popup": "popup.html"
   }
 }
