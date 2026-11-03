@@ -4,9 +4,9 @@ This document describes the execution-loop branch. It documents source behavior;
 
 ## 1. Architecture
 
-ChatGPT conversation -> user prepares task -> extension popup -> POST /v1/tasks with Bearer token -> FastAPI on 127.0.0.1:8765 -> SQLite task row -> OpenClaw agent CLI -> captured result -> SQLite -> extension GET /v1/tasks/{task_id} -> user copies report into ChatGPT.
+ChatGPT assistant message containing <OpenClaw>...</OpenClaw> -> content script extracts only the tag body -> POST /v1/tasks -> FastAPI -> OpenClaw agent CLI -> captured result -> SQLite -> extension polls -> report is submitted to the originating ChatGPT conversation.
 
-The extension is a manual relay, not a native ChatGPT tool. It does not automatically read the ChatGPT conversation. The user must review and click Send, then manually click Check latest result. n8n is an optional local service scaffold and is not called by the current FastAPI task lifecycle.
+The extension is an explicitly armed relay, not a native ChatGPT tool. It watches new assistant turns for complete <OpenClaw>...</OpenClaw> blocks, forwards only the text inside the tags, polls for completion, and submits the report to the originating ChatGPT conversation. n8n is an optional local service scaffold and is not called by the current FastAPI task lifecycle.
 
 The configured working directory is not an OS-level sandbox. The bridge forwards task text unchanged and does not add repository-generated task instructions. OpenClaw's actual Windows permissions remain the security boundary. The bridge does not configure OpenClaw, pair nodes, change approval policies, or install software.
 
@@ -60,7 +60,7 @@ Purpose: starter environment template with optional n8n settings and older/gener
 Inputs: user copies it to local .env and replaces placeholders.
 Outputs: environment variables for processes that load this file.
 Variables: N8N_ENCRYPTION_KEY, N8N_BASIC_AUTH_ACTIVE, GENERIC_TIMEZONE, TZ, BRIDGE_HOST, BRIDGE_PORT, BRIDGE_API_TOKEN, OPENCLAW_COMMAND, OPENCLAW_AGENT_ID, OPENCLAW_WORKSPACE and OPENCLAW_TIMEOUT_SECONDS.
-Important: use api/.env.example for current API-specific CLI and Python path settings. Never commit real .env secrets.
+Important: use api/.env.example for current API-specific CLI settings. The bridge does not inject Python or other task instructions. Never commit real .env secrets.
 
 ### compose.yaml
 Purpose: defines optional n8n Docker service.
@@ -90,7 +90,7 @@ Variables read by api/main.py:
 - OPENCLAW_ENTRYPOINT: optional OpenClaw .mjs entrypoint, inserted after Node executable when non-empty.
 - OPENCLAW_AGENT_ID: agent passed to openclaw agent --agent.
 - OPENCLAW_WORKSPACE: subprocess working directory and working directory for the subprocess.
-- OPENCLAW_PYTHON: full Python interpreter path embedded into every agent prompt.
+- 
 - OPENCLAW_TIMEOUT_SECONDS: CLI timeout; code enforces minimum 10 seconds.
 Template-only currently: BRIDGE_HOST and BRIDGE_PORT are present, but main.py does not read them. The README Uvicorn command supplies host/port explicitly.
 Outputs: configuration values read when main.py imports.
