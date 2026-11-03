@@ -1,18 +1,30 @@
 {
   "manifest_version": 3,
   "name": "OpenClaw ChatGPT Bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A user-armed automatic handoff between ChatGPT and local OpenClaw.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "http://127.0.0.1:8765/*"
   ],
-  "content_scripts": [{
-    "matches": ["https://chatgpt.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_title": "OpenClaw Bridge",
     "default_popup": "popup.html"
