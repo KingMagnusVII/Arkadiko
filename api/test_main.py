@@ -41,18 +41,19 @@ class AgentOutputTests(unittest.TestCase):
 
 
 class AgentPromptTests(unittest.TestCase):
-    """Verify that every task prompt includes the user's persistent execution rules."""
+    """Verify that the bridge forwards exactly the submitted task text."""
 
-    def test_prompt_contains_persistent_execution_rules(self):
-        # Build a sample prompt and check the interpreter path and no-edit-by-default rule.
-        prompt = build_agent_prompt("Run test.py")
-        self.assertIn(
-            r"C:\Users\Magnus\AppData\Local\Python\pythoncore-3.15-64\python.exe",
-            prompt,
-        )
-        self.assertIn("Do not edit, create", prompt)
-        self.assertIn("unless the user's task explicitly asks", prompt)
-        self.assertIn("Run test.py", prompt)
+    def test_prompt_is_exactly_the_submitted_task(self):
+        task = 'Open test.py and print("hi rei")'
+        self.assertEqual(build_agent_prompt(task), task)
+
+    def test_prompt_does_not_add_workspace_or_execution_rules(self):
+        task = "Run the command I supplied."
+        prompt = build_agent_prompt(task)
+        self.assertNotIn("Workspace:", prompt)
+        self.assertNotIn("EXECUTION AND FILE-CHANGE RULES", prompt)
+        self.assertNotIn("Python", prompt)
+        self.assertEqual(prompt, task)
 
 
 if __name__ == "__main__":
