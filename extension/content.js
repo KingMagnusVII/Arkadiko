@@ -123,7 +123,7 @@
   });
 
   async function insertResultIntoChat(report) {
-    const composer = document.querySelector('#prompt-textarea,[contenteditable="true"][data-testid="prompt-textarea"],[contenteditable="true"]. ProseMirror');
+    const composer = document.querySelector('#prompt-textarea,[contenteditable="true"][data-testid="prompt-textarea"],[contenteditable="true"].ProseMirror');
     if (!composer) throw new Error("Could not find the ChatGPT message composer.");
     composer.focus();
     const text = String(report || "");
