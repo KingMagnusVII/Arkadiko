@@ -110,6 +110,8 @@ Edit and save these values:
 - `OPENCLAW_AGENT_ID`: the OpenClaw agent to invoke; the template uses `main`.
 - `OPENCLAW_TIMEOUT_SECONDS`: maximum agent runtime; the template uses 300 seconds.
 
+These are instructions only; the example values are not changed automatically. To change a setting, open `api/.env` (not `api/.env.example`) in a text editor, edit only the value after the relevant `=`, save the file, and restart the FastAPI/Uvicorn terminal so the API reloads the environment. For example, change `OPENCLAW_WORKSPACE` to the folder you want OpenClaw to use, or update `OPENCLAW_ENTRYPOINT` if `openclaw.mjs` is installed at a different location. Keep the variable names unchanged, do not add spaces around `=`, and do not commit `api/.env` or its token to GitHub. The extension's **Local API URL** and **Bridge token** are separate popup settings; the token must match `BRIDGE_API_TOKEN` in `api/.env`.
+
 The template's `OPENCLAW_COMMAND=node` means the API launches Node and passes the configured `openclaw.mjs` entrypoint to it. The API forwards the task text unchanged; it does not silently add Python paths, workspace instructions, or file-editing rules. Put task-specific instructions in the task itself and keep OpenClaw's own filesystem/tool permissions appropriately restricted.
 
 ### 4. Start OpenClaw and the local API
@@ -163,7 +165,7 @@ Run test.py from my configured workspace and report stdout, stderr, and the exit
 </OpenClaw>
 ```
 
-While the bridge is open, Arkadiko waits until the assistant message is complete and stable, extracts the contents of the tags, and submits the task. The extension popup shows the latest task and report. When delivery succeeds, the report is also submitted to the same ChatGPT conversation.
+While the bridge is open, Arkadiko waits until the assistant message is complete and stable, extracts the contents of the tags, and submits the task. The extension popup shows the latest task and report. When delivery succeeds, the report is also submitted to the same ChatGPT conversation. Use **Copy latest report** to copy it, or the bin icon beside that button to delete the latest finished report from the popup and local SQLite task ledger. Deletion is limited to that one finished report; it does not delete other tasks or files.
 
 Choose **Close Bridge** in the extension popup when you do not want new tagged tasks to be handed off. The bridge is closed by default after initialization; opening it is an explicit user action.
 
@@ -212,6 +214,7 @@ Authorization: Bearer <BRIDGE_API_TOKEN>
 | `GET` | `/health` | Unauthenticated API liveness check |
 | `POST` | `/v1/tasks` | Submit a task; returns HTTP 202 and a task ID |
 | `GET` | `/v1/tasks/{task_id}` | Retrieve task status and execution result |
+| `DELETE` | `/v1/tasks/{task_id}` | Delete a finished task/report from the local SQLite ledger |
 
 Example task body:
 
