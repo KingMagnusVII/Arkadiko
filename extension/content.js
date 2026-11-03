@@ -1,7 +1,6 @@
 // READ-ONLY diagnostic content script.
-// It observes ChatGPT assistant turns, captures their text, and detects explicit
-// <OpenClaw>...</OpenClaw> blocks for testing. It deliberately contains no API
-// calls and cannot submit work to OpenClaw.
+// It observes only assistant messages that appear after capture is armed.
+// <OpenClaw>...</OpenClaw> detection remains read-only; nothing is sent to OpenClaw.
 (() => {
   if (window.__openClawBridgeLoaded) return;
   window.__openClawBridgeLoaded = true;
@@ -21,10 +20,12 @@
   const CAPTURE_DELAY_MS = 500;
   const FALLBACK_SCAN_MS = 1200;
   const MAX_CAPTURED_MESSAGES = 10;
-  const OPENCLAW_TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/i;
+  const OPENCLAW_TAG_RE = /<OpenClaw>([\\s\\S]*?)<\\/OpenClaw>/i;
 
   const lastSeenText = new WeakMap();
   const pendingTimers = new WeakMap();
+  // Nodes already present when capture starts are historical and are never captured.
+  let preExistingNodes = new WeakSet();
 
   let enabled = false;
   let stateReady = false;
@@ -47,11 +48,9 @@
 
   function findOpenClawTasks(text) {
     const tasks = [];
-    const source = String(text || '');
-    const flags = 'gi';
-    const matcher = new RegExp(OPENCLAW_TAG_RE.source, flags);
+    const matcher = new RegExp(OPENCLAW_TAG_RE.source, 'gi');
     let match;
-    while ((match = matcher.exec(source)) !== null) {
+    while ((match = matcher.exec(String(text || ''))) !== null) {
       const task = (match[1] || '').trim();
       if (task) tasks.push(task);
       if (match[0].length === 0) matcher.lastIndex += 1;
@@ -86,112 +85,11 @@
       lastMutationAt,
       ...extra
     };
-
     try {
       await chrome.storage.local.set({ bridgeCaptureDiagnostics: diagnostics });
     } catch (error) {
       console.error('[OpenClaw Bridge diagnostic] Storage write failed:', error);
     }
-  }
-
-  async function setCaptureState(nextEnabled, source) {
-    enabled = nextEnabled === true;
-    await chrome.storage.local.set({
-      bridgeRunning: enabled,
-      bridgeLastStatus: {
-        message: enabled
-          ? 'Read-only capture armed. Nothing will be sent to OpenClaw.'
-          : 'Capture stopped. No messages are being inspected.',
-        kind: enabled ? 'working' : 'neutral'
-      }
-    });
-    await saveDiagnostics({ lastEvent: source || (enabled ? 'capture-enabled' : 'capture-disabled') });
-    if (enabled && stateReady) scanAllAssistantMessages('capture-enabled-scan');
-    return { ok: true, captureArmed: enabled };
-  }
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message?.type) return false;
-
-    if (message.type === 'openclaw-bridge-start-capture') {
-      setCaptureState(true, 'capture-enabled-by-popup')
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error.message }));
-      return true;
-    }
-
-    if (message.type === 'openclaw-bridge-stop-capture') {
-      setCaptureState(false, 'capture-disabled-by-popup')
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error.message }));
-      return true;
-    }
-
-    if (message.type === 'openclaw-bridge-get-diagnostics') {
-      saveDiagnostics({ lastEvent: 'diagnostics-requested' })
-        .then(() => sendResponse({ ok: true }))
-        .catch(error => sendResponse({ ok: false, error: error.message }));
-      return true;
-    }
-
-    return false;
-  });
-
-  chrome.storage.local.get(['bridgeRunning', 'bridgeCaptureLog']).then(saved => {
-    enabled = saved.bridgeRunning === true;
-    captureLog = Array.isArray(saved.bridgeCaptureLog) ? saved.bridgeCaptureLog : [];
-    stateReady = true;
-    saveDiagnostics({ lastEvent: 'content-script-ready' });
-    if (enabled) scanAllAssistantMessages('initial-scan');
-  }).catch(error => {
-    stateReady = true;
-    console.error('[OpenClaw Bridge diagnostic] Could not read extension storage:', error);
-    saveDiagnostics({ lastError: 'Could not read extension storage: ' + error.message });
-  });
-
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local') return;
-    if (changes.bridgeRunning) {
-      enabled = changes.bridgeRunning.newValue === true;
-      saveDiagnostics({ lastEvent: enabled ? 'capture-enabled-storage' : 'capture-disabled-storage' });
-      if (enabled && stateReady) scanAllAssistantMessages('capture-enabled-scan');
-    }
-    if (changes.bridgeCaptureLog && Array.isArray(changes.bridgeCaptureLog.newValue)) {
-      captureLog = changes.bridgeCaptureLog.newValue;
-    }
-  });
-
-  function getCaptureText(node) {
-    if (!(node instanceof Element)) return '';
-
-    const content = node.querySelector?.(
-      '[data-message-author-role="assistant"] .markdown,' +
-      '[data-message-author-role="assistant"] .prose,' +
-      '[data-markdown-text-style="assistant-message"],' +
-      '[data-conversation-role="assistant"] .markdown,' +
-      '[data-conversation-role="assistant"] .prose,' +
-      '.markdown.prose'
-    );
-    const source = content || node;
-    return (source.innerText || source.textContent || '')
-      .replace(/\u00a0/g, ' ')
-      .trim();
-  }
-
-  function isAssistantNode(node) {
-    if (!(node instanceof Element)) return false;
-    if (node.getAttribute('data-message-author-role') === 'assistant') return true;
-    if (node.getAttribute('data-conversation-role') === 'assistant') return true;
-    if (node.getAttribute('data-turn') === 'assistant') return true;
-    if (node.matches('[data-content-search-unit-key$=":assistant"]')) return true;
-    if (node.matches('[data-chatgpt-search-unit-key$=":assistant"]')) return true;
-    if (node.matches('[data-turn-key]')) {
-      return Boolean(node.querySelector('[data-conversation-role="assistant"], [data-chatgpt-agent-turn-start], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]'));
-    }
-    if (node.matches('[data-testid^="conversation-turn-"]')) {
-      return Boolean(node.querySelector('[data-message-author-role="assistant"]'));
-    }
-    return false;
   }
 
   function normalizeCaptureNode(node) {
@@ -205,14 +103,139 @@
     if (node.matches('[data-turn-key]')) {
       return node.querySelector('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"], [data-conversation-role="assistant"], [data-chatgpt-agent-turn-start], [data-markdown-text-style="assistant-message"]') || node;
     }
-    const roleNode = node.querySelector?.('[data-message-author-role="assistant"], [data-conversation-role="assistant"], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]');
-    return roleNode || null;
+    return node.querySelector?.('[data-message-author-role="assistant"], [data-conversation-role="assistant"], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]') || null;
   }
+
+  function isAssistantNode(node) {
+    if (!(node instanceof Element)) return false;
+    if (node.getAttribute('data-message-author-role') === 'assistant') return true;
+    if (node.getAttribute('data-conversation-role') === 'assistant') return true;
+    if (node.getAttribute('data-turn') === 'assistant') return true;
+    if (node.matches('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]')) return true;
+    if (node.matches('[data-turn-key]')) {
+      return Boolean(node.querySelector('[data-conversation-role="assistant"], [data-chatgpt-agent-turn-start], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]'));
+    }
+    if (node.matches('[data-testid^="conversation-turn-"]')) return Boolean(node.querySelector('[data-message-author-role="assistant"]'));
+    return false;
+  }
+
+  function getCaptureText(node) {
+    if (!(node instanceof Element)) return '';
+    const content = node.querySelector?.(
+      '[data-message-author-role="assistant"] .markdown,' +
+      '[data-message-author-role="assistant"] .prose,' +
+      '[data-markdown-text-style="assistant-message"],' +
+      '[data-conversation-role="assistant"] .markdown,' +
+      '[data-conversation-role="assistant"] .prose,' +
+      '.markdown.prose'
+    );
+    const source = content || node;
+    return (source.innerText || source.textContent || '').replace(/\\u00a0/g, ' ').trim();
+  }
+
+  // Take a snapshot of the conversation at the instant capture is armed.
+  // Existing assistant turns are marked historical, not queued for capture.
+  function seedExistingAssistantMessages() {
+    preExistingNodes = new WeakSet();
+    const nodes = queryAll(ASSISTANT_SELECTOR);
+    for (const node of nodes) {
+      const captureNode = normalizeCaptureNode(node);
+      if (!captureNode) continue;
+      preExistingNodes.add(captureNode);
+      lastSeenText.set(captureNode, getCaptureText(captureNode));
+      const timer = pendingTimers.get(captureNode);
+      if (timer) clearTimeout(timer);
+    }
+    return nodes.length;
+  }
+
+  async function setCaptureState(nextEnabled, source) {
+    const wasEnabled = enabled;
+    enabled = nextEnabled === true;
+
+    if (enabled && !wasEnabled) {
+      // Start a fresh capture session: discard prior diagnostic captures and
+      // establish a baseline so the initial scan cannot count old messages.
+      captureLog = [];
+      captureCount = 0;
+      tagCount = 0;
+      await chrome.storage.local.set({ bridgeCaptureLog: [] });
+      const historicalCount = seedExistingAssistantMessages();
+      await chrome.storage.local.set({
+        bridgeRunning: true,
+        bridgeLastStatus: {
+          message: 'Capture armed. Ignoring ' + historicalCount + ' existing assistant messages; waiting for new messages.',
+          kind: 'working'
+        }
+      });
+      await saveDiagnostics({
+        lastEvent: source || 'capture-enabled',
+        historicalMessagesIgnored: historicalCount
+      });
+      return { ok: true, captureArmed: true, historicalMessagesIgnored: historicalCount };
+    }
+
+    await chrome.storage.local.set({
+      bridgeRunning: enabled,
+      bridgeLastStatus: {
+        message: enabled ? 'Capture already armed. Existing messages remain ignored.' : 'Capture stopped. No messages are being inspected.',
+        kind: enabled ? 'working' : 'neutral'
+      }
+    });
+    await saveDiagnostics({ lastEvent: source || (enabled ? 'capture-enabled' : 'capture-disabled') });
+    return { ok: true, captureArmed: enabled };
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message?.type) return false;
+    if (message.type === 'openclaw-bridge-start-capture') {
+      setCaptureState(true, 'capture-enabled-by-popup').then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    if (message.type === 'openclaw-bridge-stop-capture') {
+      setCaptureState(false, 'capture-disabled-by-popup').then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    if (message.type === 'openclaw-bridge-get-diagnostics') {
+      saveDiagnostics({ lastEvent: 'diagnostics-requested' }).then(() => sendResponse({ ok: true })).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+    return false;
+  });
+
+  chrome.storage.local.get(['bridgeRunning', 'bridgeCaptureLog']).then(saved => {
+    enabled = saved.bridgeRunning === true;
+    // Do not restore old captures into the active session's counter.
+    captureLog = [];
+    stateReady = true;
+    if (enabled) {
+      const historicalCount = seedExistingAssistantMessages();
+      saveDiagnostics({ lastEvent: 'content-script-ready-baseline', historicalMessagesIgnored: historicalCount });
+    } else {
+      saveDiagnostics({ lastEvent: 'content-script-ready' });
+    }
+  }).catch(error => {
+    stateReady = true;
+    console.error('[OpenClaw Bridge diagnostic] Could not read extension storage:', error);
+    saveDiagnostics({ lastError: 'Could not read extension storage: ' + error.message });
+  });
+
+  chrome.storage.onChanged.addListener(changes => {
+    if (changes.bridgeRunning) {
+      enabled = changes.bridgeRunning.newValue === true;
+      saveDiagnostics({ lastEvent: enabled ? 'capture-enabled-storage' : 'capture-disabled-storage' });
+      if (!enabled) preExistingNodes = new WeakSet();
+    }
+    if (changes.bridgeCaptureLog && Array.isArray(changes.bridgeCaptureLog.newValue)) {
+      captureLog = changes.bridgeCaptureLog.newValue;
+    }
+  });
 
   function scheduleCapture(node, source = 'mutation') {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalizeCaptureNode(node);
     if (!captureNode || (!isAssistantNode(captureNode) && !isAssistantNode(node))) return;
+    if (preExistingNodes.has(captureNode)) return;
 
     const currentText = getCaptureText(captureNode);
     if (!currentText || lastSeenText.get(captureNode) === currentText) return;
@@ -222,14 +245,11 @@
     if (oldTimer) clearTimeout(oldTimer);
 
     const timer = setTimeout(async () => {
-      if (!enabled) return;
+      if (!enabled || preExistingNodes.has(captureNode)) return;
       const completeText = getCaptureText(captureNode);
       if (!completeText) return;
-
       const openClawTasks = findOpenClawTasks(completeText);
-      if (openClawTasks.length) {
-        tagCount += openClawTasks.length;
-      }
+      if (openClawTasks.length) tagCount += openClawTasks.length;
 
       const messageId =
         captureNode.getAttribute('data-message-id') ||
@@ -249,18 +269,14 @@
         text: completeText
       };
 
-      captureLog = [
-        entry,
-        ...captureLog.filter(item => !messageId || item.messageId !== messageId)
-      ].slice(0, MAX_CAPTURED_MESSAGES);
-
+      captureLog = [entry, ...captureLog.filter(item => !messageId || item.messageId !== messageId)].slice(0, MAX_CAPTURED_MESSAGES);
       try {
         await chrome.storage.local.set({
           bridgeCaptureLog: captureLog,
           bridgeLastStatus: {
             message: openClawTasks.length
               ? 'Detected <OpenClaw> task tag (' + openClawTasks.length + ' task' + (openClawTasks.length === 1 ? '' : 's') + '). Read-only; nothing sent to OpenClaw.'
-              : 'Captured assistant message (' + entry.characters + ' characters). Read-only; nothing sent to OpenClaw.',
+              : 'Captured new assistant message (' + entry.characters + ' characters). Read-only; nothing sent to OpenClaw.',
             kind: openClawTasks.length ? 'queued' : 'completed'
           }
         });
@@ -278,7 +294,6 @@
         await saveDiagnostics({ lastError: 'Could not save captured message: ' + error.message });
       }
     }, CAPTURE_DELAY_MS);
-
     pendingTimers.set(captureNode, timer);
   }
 
@@ -287,21 +302,15 @@
     scanCount += 1;
     const messages = queryAll(ASSISTANT_SELECTOR);
     messages.forEach(node => scheduleCapture(node, source));
-    saveDiagnostics({
-      lastEvent: source,
-      lastScanAt: new Date().toISOString(),
-      assistantCount: messages.length
-    });
+    saveDiagnostics({ lastEvent: source, lastScanAt: new Date().toISOString(), assistantCount: messages.length });
   }
 
   function inspectMutation(node) {
     if (!(node instanceof Node)) return;
     const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     if (!element) return;
-
     const assistantAncestor = element.closest?.(ASSISTANT_SELECTOR);
     if (assistantAncestor) scheduleCapture(assistantAncestor, 'mutation-observer');
-
     if (element instanceof Element) {
       if (element.matches(ASSISTANT_SELECTOR)) scheduleCapture(element, 'mutation-observer');
       element.querySelectorAll?.(ASSISTANT_SELECTOR).forEach(message => scheduleCapture(message, 'mutation-observer'));
@@ -312,7 +321,6 @@
     if (!stateReady || !enabled) return;
     mutationCount += records.length;
     lastMutationAt = new Date().toISOString();
-
     for (const record of records) {
       if (record.type === 'childList') {
         record.addedNodes.forEach(inspectMutation);
@@ -332,14 +340,9 @@
       characterData: true,
       attributes: true,
       attributeFilter: [
-        'data-turn-key',
-        'data-content-search-unit-key',
-        'data-chatgpt-search-unit-key',
-        'data-conversation-role',
-        'data-message-author-role',
-        'data-message-id',
-        'data-turn-id',
-        'data-testid'
+        'data-turn-key', 'data-content-search-unit-key', 'data-chatgpt-search-unit-key',
+        'data-conversation-role', 'data-message-author-role', 'data-message-id',
+        'data-turn-id', 'data-testid'
       ]
     });
     observerStarted = true;
