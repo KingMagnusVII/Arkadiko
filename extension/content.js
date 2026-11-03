@@ -18,6 +18,8 @@
   ].join(',');
 
   const DEBOUNCE_MS = 500;
+  const STABILITY_INTERVAL_MS = 650;
+  const REQUIRED_STABLE_CHECKS = 3;
   const SCAN_INTERVAL_MS = 1200;
   const TAG_RE = /(?:<|&lt;)OpenClaw(?:>|&gt;)([\s\S]*?)(?:<\/|&lt;\/)OpenClaw(?:>|&gt;)/gi;
 
@@ -81,6 +83,15 @@
     return (source.innerText || source.textContent || "").replace(/\u00a0/g, " ").trim();
   }
 
+  function generationActive() {
+    return Array.from(document.querySelectorAll("button")).some(button => {
+      const label = (button.getAttribute("aria-label") || "").toLowerCase();
+      const testId = (button.getAttribute("data-testid") || "").toLowerCase();
+      const text = (button.innerText || button.textContent || "").trim().toLowerCase();
+      return testId.includes("stop") || label.includes("stop generating") ||
+        label.includes("stop streaming") || text === "stop";
+    });
+  }
   function extractTasks(text) {
     const tasks = [];
     const matcher = new RegExp(TAG_RE.source, "gi");
@@ -272,6 +283,21 @@
     if (previous) clearTimeout(previous);
     const timer = setTimeout(async () => {
       if (!enabled || historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
+      let lastText = getText(captureNode);
+      if (!lastText) return;
+      let stableChecks = 0;
+      while (enabled && stableChecks < REQUIRED_STABLE_CHECKS) {
+        await sleep(STABILITY_INTERVAL_MS);
+        if (!enabled || historicalNodes.has(captureNode) || seenNodes.has(captureNode)) return;
+        const currentText = getText(captureNode);
+        if (generationActive() || currentText !== lastText) {
+          lastText = currentText;
+          stableChecks = 0;
+        } else {
+          stableChecks += 1;
+        }
+      }
+      if (!enabled || generationActive()) return;
       const completeText = getText(captureNode);
       if (!completeText) return;
       const tasks = extractTasks(completeText);
