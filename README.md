@@ -15,6 +15,12 @@ A local-first bridge that lets a user arm automatic, explicitly marked task hand
 
 The extension is an explicitly armed relay, **not a native ChatGPT tool**. While open, it watches new assistant turns for complete `<OpenClaw> ... </OpenClaw>` blocks, sends only the text inside those tags to the local API, and returns the execution report to the same ChatGPT conversation. Ordinary assistant messages and messages that existed before the bridge was opened are ignored.
 
+## Showcase
+
+The browser extension popup is the control panel for the local execution bridge. It lets you configure the local API URL and Bridge token, explicitly open or close the bridge, and see whether new tagged tasks will be handed off.
+
+![OpenClaw Bridge extension popup](Extension_Pop-up.png)
+
 ## Components
 
 - **OpenClaw**: existing Windows agent and execution environment.
