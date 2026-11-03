@@ -20,7 +20,7 @@
   const STABILITY_INTERVAL_MS = 650;
   const REQUIRED_STABLE_CHECKS = 3;
   const SCAN_INTERVAL_MS = 1200;
-  const TAG_RE = /<OpenClaw>([\\s\\S]*?)<\\/OpenClaw>/gi;
+  const TAG_RE = /<OpenClaw>([\s\S]*?)<\\/OpenClaw>/gi;
 
   let enabled = false;
   let stateReady = false;
@@ -38,7 +38,7 @@
       '.markdown.prose'
     );
     const source = content || node;
-    return (source.innerText || source.textContent || "").replace(/\\u00a0/g, " ").trim();
+    return (source.innerText || source.textContent || "").replace(/\u00a0/g, " ").trim();
   };
 
   function normalize(node) {
