@@ -20,7 +20,7 @@
   const STABILITY_INTERVAL_MS = 650;
   const REQUIRED_STABLE_CHECKS = 3;
   const SCAN_INTERVAL_MS = 1200;
-  const TAG_RE = /<OpenClaw>([\s\S]*?)<\\/OpenClaw>/gi;
+  const TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/gi;
 
   let enabled = false;
   let stateReady = false;
@@ -133,7 +133,9 @@
       else composer.value = text;
       composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
     } else {
-      composer.replaceChildren(document.createTextNode(text));
+      composer.replaceChildren();
+      composer.focus();
+      document.execCommand("insertText", false, text);
       composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
     }
     await new Promise(resolve => setTimeout(resolve, 250));
