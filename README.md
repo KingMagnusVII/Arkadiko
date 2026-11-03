@@ -1,146 +1,239 @@
-# OpenClaw ChatGPT Bridge
+# Arkadiko — ChatGPT ↔ OpenClaw Local Bridge
 
-A local-first bridge that lets a user arm automatic, explicitly marked task handoffs from ChatGPT to OpenClaw running on Windows, then returns execution reports to the same conversation.
+Arkadiko is a local-first bridge that lets you explicitly hand a task from ChatGPT to OpenClaw running on your Windows PC, then return the execution report to the same ChatGPT conversation.
 
-> Status: early implementation (v0.3). The extension popup contains the Run/Stop controls; no controls are injected into the ChatGPT page. Automation is stopped by default. When the user opens the bridge, only complete assistant messages containing `<OpenClaw> ... </OpenClaw>` blocks are handed to the local agent.
+> **Current status:** early implementation (v0.3). The browser extension is user-armed: it is closed by default and only forwards complete `<OpenClaw>...</OpenClaw>` blocks from new assistant messages while the bridge is open. The extension does not inject controls into the ChatGPT page.
 
-## Intended workflow
+## What it does
 
-1. ChatGPT helps prepare a task.
-2. You explicitly send that task using the browser extension.
-3. The local FastAPI service creates a task ID and invokes the Gateway-backed OpenClaw agent CLI.
-4. OpenClaw runs the task in the configured project workspace.
-5. The extension retrieves the task result using its task ID.
-6. You review the result and bring it back to ChatGPT. ChatGPT decides the next step; nothing runs automatically without another handoff.
+1. Ask ChatGPT to prepare a task.
+2. Open the Arkadiko browser-extension popup and choose **Open Bridge**.
+3. ChatGPT sends the text inside a complete `<OpenClaw>...</OpenClaw>` block to the local FastAPI API.
+4. The API records the task and invokes your configured OpenClaw agent through the Gateway-backed CLI.
+5. The extension polls for the result and submits the report to the originating ChatGPT conversation.
+6. Review the result before deciding what to do next. Each new task requires a new explicit handoff.
 
-The extension is an explicitly armed relay, **not a native ChatGPT tool**. While open, it watches new assistant turns for complete `<OpenClaw> ... </OpenClaw>` blocks, sends only the text inside those tags to the local API, and returns the execution report to the same ChatGPT conversation. Ordinary assistant messages and messages that existed before the bridge was opened are ignored.
+Arkadiko is an explicitly armed relay, **not a native ChatGPT tool**. Ordinary assistant messages are ignored. Messages that existed before the bridge was opened are also ignored.
 
-## Components
+## Architecture
 
-- **OpenClaw**: existing Windows agent and execution environment.
-- **FastAPI**: authenticated loopback API and SQLite task ledger.
-- **n8n**: local workflow orchestration UI (Docker Compose deployment).
-- **Browser extension**: manual task submission from a ChatGPT tab.
+```text
+ChatGPT assistant response
+  └─ <OpenClaw>task text</OpenClaw>
+       └─ Browser extension (content.js)
+            └─ Extension service worker (background.js)
+                 └─ FastAPI API (127.0.0.1:8765)
+                      ├─ SQLite task ledger
+                      └─ OpenClaw agent CLI
+                           └─ Windows workspace / tools
+                 └─ Poll result and return report to ChatGPT
+```
+
+### Components
+
+- **OpenClaw:** the existing Windows agent and execution environment.
+- **FastAPI:** authenticated loopback API and SQLite task ledger.
+- **Browser extension:** user-armed task detection, submission, polling, and report delivery.
+- **n8n:** optional local workflow UI scaffold. The current FastAPI task lifecycle does **not** call n8n.
 
 ## Repository layout
 
 ```text
 .
 ├── api/
-│   ├── main.py
-│   ├── requirements.txt
-│   └── .env.example
+│   ├── main.py             # FastAPI API and OpenClaw subprocess coordinator
+│   ├── test_main.py        # Unit tests for prompt/output helpers
+│   ├── requirements.txt    # Python API dependencies
+│   └── .env.example        # API configuration template
 ├── extension/
-│   ├── manifest.json
-│   ├── popup.html
-│   ├── popup.js
-│   └── content.js
-├── compose.yaml
-├── .env.example
+│   ├── manifest.json       # Chrome Manifest V3 configuration
+│   ├── background.js       # API submission, polling, and report delivery
+│   ├── content.js          # Detect tagged tasks and interact with ChatGPT
+│   ├── popup.html          # Extension popup interface and styles
+│   └── popup.js            # Popup settings and Open/Close controls
+├── compose.yaml            # Optional n8n deployment
+├── .env.example            # Optional n8n environment template
+├── BRIDGE_REFERENCE.md     # Detailed file/function/flow reference
 └── README.md
 ```
 
 ## Prerequisites
 
-- Windows 10/11
-- Docker Desktop with the WSL 2 backend
-- Python 3.10+
-- OpenClaw CLI installed and working for the Windows user running the API
-- Chrome or a Chromium-based browser
+- Windows 10 or 11.
+- Python 3.10 or newer (Python 3.12 is a good default for the API virtual environment).
+- OpenClaw installed and working for the same Windows user that runs the API.
+- Node.js, if your OpenClaw installation is invoked through its `.mjs` entrypoint (the supplied configuration uses Node).
+- Chrome or another Chromium-based browser.
+- Docker Desktop only if you also want the optional n8n service.
 
-## Local setup
+## Getting started on Windows
 
-### 1. Configure n8n
+The steps below run the FastAPI bridge and browser extension. They assume OpenClaw is already installed and its Gateway is available.
 
-Copy `.env.example` to `.env`. Generate a unique encryption key and keep it private. In PowerShell:
+### 1. Get the project
+
+Clone the repository, or open the folder you already cloned:
 
 ```powershell
-Copy-Item .env.example .env
-$bytes = New-Object byte[] 32
-[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$key = [Convert]::ToBase64String($bytes)
-(Get-Content .env -Raw).Replace('replace-with-a-random-32-byte-or-longer-secret', $key) | Set-Content .env
+git clone https://github.com/KingMagnusVII/Arkadiko.git
+Set-Location .\Arkadiko
 ```
 
-Start n8n:
+If you already have the repository locally, just `Set-Location` to that folder instead.
+
+### 2. Create the API environment
+
+From the repository root:
 
 ```powershell
-docker compose up -d
+py -3.12 -m venv api\.venv
+api\.venv\Scripts\python.exe -m pip install --upgrade pip
+api\.venv\Scripts\python.exe -m pip install -r api\requirements.txt
 ```
 
-Open [http://localhost:5678](http://localhost:5678) and complete the initial owner setup. n8n data is stored in the named Docker volume `openclaw-chatgpt-bridge-n8n-data`.
+If the Python launcher does not have a 3.12 installation, use another installed Python version that is 3.10 or newer.
 
-### 2. Configure the local API
+### 3. Configure the API
 
-Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. The bridge forwards the submitted task text to OpenClaw without adding repository-generated task instructions. Put any interpreter path, working-directory instruction, or execution constraint you want OpenClaw to follow directly in your task.
-
-Install and run:
+Create the API's local environment file:
 
 ```powershell
-py -m venv api/.venv
-api/.venv/Scripts/python.exe -m pip install -r api/requirements.txt
-api/.venv/Scripts/python.exe -m uvicorn main:app --app-dir api --host 127.0.0.1 --port 8765
+Copy-Item api\.env.example api\.env
+notepad api\.env
 ```
 
-Check [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health).
+Edit and save these values:
 
-The API intentionally binds to loopback. Do not change it to `0.0.0.0` or expose it publicly without a separately reviewed network security design.
+- `BRIDGE_API_TOKEN`: replace the placeholder with a long random secret. You will enter the same value in the extension popup. Keep it private.
+- `OPENCLAW_ENTRYPOINT`: point to the `openclaw.mjs` file installed on your PC. The example contains a Windows Store package path; update it if your installation path differs.
+- `OPENCLAW_WORKSPACE`: set the directory OpenClaw should work in, for example `C:\\Magnus\\Code\\DSA`.
+- `OPENCLAW_AGENT_ID`: the OpenClaw agent to invoke; the template uses `main`.
+- `OPENCLAW_TIMEOUT_SECONDS`: maximum agent runtime; the template uses 300 seconds.
 
-### 3. Run the bridge from VS Code
+The template's `OPENCLAW_COMMAND=node` means the API launches Node and passes the configured `openclaw.mjs` entrypoint to it. The API forwards the task text unchanged; it does not silently add Python paths, workspace instructions, or file-editing rules. Put task-specific instructions in the task itself and keep OpenClaw's own filesystem/tool permissions appropriately restricted.
 
-Open the repository in VS Code and start the local FastAPI bridge from the integrated PowerShell terminal:
+### 4. Start OpenClaw and the local API
+
+Make sure OpenClaw is installed and its Gateway is running for your Windows user. Then, from the repository root, start the API:
 
 ```powershell
-cd C:\Magnus\Code\OpenClaw-ChatGPT-Bridge
-.venv\Scripts\python.exe -m uvicorn main:app --app-dir api --host 127.0.0.1 --port 8765
+api\.venv\Scripts\python.exe -m uvicorn main:app --app-dir api --host 127.0.0.1 --port 8765
 ```
 
-Keep this terminal running while using the browser extension. The bridge should be available at `http://127.0.0.1:8765`.
+Keep this terminal open while using Arkadiko. The API listens only on loopback at `http://127.0.0.1:8765`.
 
-To verify that the bridge is running, open another VS Code terminal and run:
+Open a second PowerShell terminal and check the health endpoint:
 
 ```powershell
-curl http://127.0.0.1:8765/health
+Invoke-RestMethod http://127.0.0.1:8765/health
 ```
 
 Expected response:
 
 ```json
-{"status":"ok","service":"openclaw-chatgpt-bridge-api"}
+{
+  "status": "ok",
+  "service": "openclaw-chatgpt-bridge-api"
+}
 ```
 
-This starts the local FastAPI bridge; it does not start the OpenClaw Gateway itself.
+The health endpoint confirms that FastAPI is alive; it does not prove that the OpenClaw Gateway or agent is reachable.
 
-### 4. Load the extension
+### 5. Load the browser extension
 
-1. Open `chrome://extensions` (or your Chromium browser's equivalent).
-2. Enable Developer mode.
-3. Choose **Load unpacked** and select this repository's `extension` folder.
-4. Open ChatGPT and click the extension icon.
-5. Enter the local API token, then choose **Open Bridge**.
-6. Ask ChatGPT for an explicitly tagged task. The complete contents of each `<OpenClaw> ... </OpenClaw>` block are queued and sent to OpenClaw. Choose **Close Bridge** to stop new handoffs.
+1. Open `chrome://extensions` in Chrome (or the equivalent extensions page in your Chromium browser).
+2. Turn on **Developer mode**.
+3. Select **Load unpacked**.
+4. Choose the repository's `extension` folder.
+5. Open or refresh a ChatGPT conversation at [chatgpt.com](https://chatgpt.com).
+6. Click the Arkadiko / OpenClaw Bridge extension icon.
+7. Set **Local API URL** to `http://127.0.0.1:8765`.
+8. Paste the exact same `BRIDGE_API_TOKEN` value from `api/.env`.
+9. Click **Open Bridge**.
 
-When open, the content script waits for assistant generation to finish and the message text to stabilize before extracting complete tags. The latest received task remains visible in the popup; completed execution reports are also shown there and returned to ChatGPT.
+If you change extension source files later, return to `chrome://extensions`, press the extension's **Reload** button, and refresh the ChatGPT tab.
 
-## API
+### 6. Send a task
 
-All task endpoints except health require:
+Ask ChatGPT for a task formatted with the explicit tags, for example:
+
+```text
+<OpenClaw>
+Run test.py from my configured workspace and report stdout, stderr, and the exit code. Do not edit any files.
+</OpenClaw>
+```
+
+While the bridge is open, Arkadiko waits until the assistant message is complete and stable, extracts the contents of the tags, and submits the task. The extension popup shows the latest task and report. When delivery succeeds, the report is also submitted to the same ChatGPT conversation.
+
+Choose **Close Bridge** in the extension popup when you do not want new tagged tasks to be handed off. The bridge is closed by default after initialization; opening it is an explicit user action.
+
+### 7. Run the API unit tests (optional)
+
+From the repository root:
+
+```powershell
+api\.venv\Scripts\python.exe -m unittest discover -s api -p "test_*.py" -v
+```
+
+These tests cover prompt pass-through and parsing of the OpenClaw CLI output. They do not launch OpenClaw or prove end-to-end browser delivery.
+
+## Optional: start n8n
+
+n8n is not required for the current ChatGPT → FastAPI → OpenClaw flow. If you want to run the optional local n8n UI:
+
+1. Copy the root environment template and set a private encryption key:
+
+   ```powershell
+   Copy-Item .env.example .env
+   notepad .env
+   ```
+
+2. Replace `N8N_ENCRYPTION_KEY` with a unique long random value.
+3. Start the service:
+
+   ```powershell
+   docker compose up -d
+   ```
+
+4. Open [http://localhost:5678](http://localhost:5678) and complete n8n's initial owner setup.
+
+The n8n data is stored in the named Docker volume `openclaw-chatgpt-bridge-n8n-data`. Starting n8n does not start FastAPI or OpenClaw, and the current API task lifecycle does not invoke n8n.
+
+## API reference
+
+All task endpoints except `GET /health` require:
 
 ```http
 Authorization: Bearer <BRIDGE_API_TOKEN>
 ```
 
-- `GET /health` — liveness check.
-- `POST /v1/tasks` — submit a task; returns `202` and a task ID.
-- `GET /v1/tasks/{task_id}` — inspect status and execution result.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | Unauthenticated API liveness check |
+| `POST` | `/v1/tasks` | Submit a task; returns HTTP 202 and a task ID |
+| `GET` | `/v1/tasks/{task_id}` | Retrieve task status and execution result |
 
-Example request:
+Example task body:
 
 ```json
 { "task": "Run test.py and report stdout, stderr, and exit code." }
 ```
 
-A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, and an error field when applicable.
+A task record includes status, stdout, stderr, exit code, timestamps, and an error field when applicable.
+
+## Security and operating boundaries
+
+- Keep `.env`, `api/.env`, tokens, encryption keys, SQLite databases, and execution logs out of Git.
+- Keep the API bound to `127.0.0.1`. Do not expose it publicly or change it to `0.0.0.0` without a separately reviewed network-security design.
+- The API forwards submitted task text unchanged to the configured OpenClaw agent and captures its structured JSON result. It does not add task instructions or modify OpenClaw settings.
+- The configured workspace path is a working-directory setting, **not** an OS-level filesystem sandbox. OpenClaw's actual Windows permissions and tool policies remain the security boundary.
+- Do not put passwords, API keys, or other secrets in task text.
+- Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
+- `manifest.json` is JSON and cannot contain comments; its settings are explained in this README and [BRIDGE_REFERENCE.md](BRIDGE_REFERENCE.md).
+
+## Detailed code reference
+
+See [BRIDGE_REFERENCE.md](BRIDGE_REFERENCE.md) for the architecture, file purposes, function inventory, API contracts, task lifecycle, security boundaries, and known gaps.
 
 ## Current milestones
 
@@ -148,28 +241,16 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 - [x] Local n8n Compose deployment definition
 - [x] Authenticated FastAPI task API with SQLite task tracking
 - [x] Manual extension popup for task submission
-- [x] Use the supported Gateway-backed `openclaw agent --message-file --json` invocation and parse its final reply
-- [x] Forward only the submitted task text to OpenClaw without adding repository-generated instructions
-- [x] Add result polling and a copy/return-to-ChatGPT action in the extension
-- [ ] Add an importable n8n workflow and wire n8n into the task lifecycle
-- [x] Add initial unit tests for JSON result parsing and persistent task instructions
-- [ ] Run the test suite on the user's Windows installation and add a one-command local launcher
-- [ ] Add explicit per-task file-diff reporting
+- [x] Gateway-backed OpenClaw CLI invocation and JSON result parsing
+- [x] Forward submitted task text without repository-generated task instructions
+- [x] Result polling and report delivery to the originating ChatGPT conversation
+- [x] Initial unit tests for prompt pass-through and output parsing
+- [ ] Importable n8n workflow connected to the task lifecycle
+- [ ] End-to-end test on the target Windows installation
+- [ ] One-command local launcher
+- [ ] Independent per-task file-diff reporting
 
-## Security notes
-
-- Keep `.env`, `api/.env`, tokens, encryption keys, SQLite databases, and execution logs out of Git.
-- Keep the API on `127.0.0.1`.
-- The API passes the submitted task text unchanged to the configured OpenClaw agent through the Gateway-backed CLI and captures its structured JSON result. It does not append workspace, Python, file-editing, or other task instructions. OpenClaw's own tool permissions remain authoritative.
-- The configured workspace path is included in the agent instruction, but this is not an OS-level filesystem sandbox. Keep OpenClaw's actual filesystem permissions narrow.
-- Do not send secrets or credentials in task text.
-- Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
-
-## Detailed code reference
-
-See [BRIDGE_REFERENCE.md](BRIDGE_REFERENCE.md) for the complete feature inventory, every file's purpose, inputs and outputs, the function/class inventory, API contracts, task lifecycle, security boundaries and known gaps.
-
-## Documentation
+## Useful documentation
 
 - [n8n self-hosting](https://docs.n8n.io/deploy/)
 - [n8n Docker Compose](https://docs.n8n.io/hosting/installation/server-setups/docker-compose/)
