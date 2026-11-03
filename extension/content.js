@@ -20,7 +20,7 @@
   const CAPTURE_DELAY_MS = 500;
   const FALLBACK_SCAN_MS = 1200;
   const MAX_CAPTURED_MESSAGES = 10;
-  const OPENCLAW_TAG_RE = /<OpenClaw>([\s\\S]*?)<\/OpenClaw>/i;
+  const OPENCLAW_TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/i;
 
   const lastSeenText = new WeakMap();
   const pendingTimers = new WeakMap();
