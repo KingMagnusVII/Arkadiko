@@ -24,6 +24,8 @@
 
   const lastSeenText = new WeakMap();
   const pendingTimers = new WeakMap();
+  // Count each assistant DOM message once, even if ChatGPT updates its DOM repeatedly.
+  let capturedNodes = new WeakSet();
   // Nodes already present when capture starts are historical and are never captured.
   let preExistingNodes = new WeakSet();
 
@@ -159,6 +161,7 @@
       captureLog = [];
       captureCount = 0;
       tagCount = 0;
+      capturedNodes = new WeakSet();
       await chrome.storage.local.set({ bridgeCaptureLog: [] });
       const historicalCount = seedExistingAssistantMessages();
       await chrome.storage.local.set({
@@ -234,8 +237,11 @@
   function scheduleCapture(node, source = 'mutation') {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalizeCaptureNode(node);
-    if (!captureNode || (!isAssistantNode(captureNode) && !isAssistantNode(node))) return;
-    if (preExistingNodes.has(captureNode)) return;
+    // Only accept a node that is itself identified as an assistant message.
+    // Do not accept a surrounding conversation/user-turn container merely
+    // because it happens to contain an assistant descendant.
+    if (!captureNode || !isAssistantNode(captureNode)) return;
+    if (preExistingNodes.has(captureNode) || capturedNodes.has(captureNode)) return;
 
     const currentText = getCaptureText(captureNode);
     if (!currentText || lastSeenText.get(captureNode) === currentText) return;
@@ -247,7 +253,10 @@
     const timer = setTimeout(async () => {
       if (!enabled || preExistingNodes.has(captureNode)) return;
       const completeText = getCaptureText(captureNode);
-      if (!completeText) return;
+      if (!completeText || capturedNodes.has(captureNode)) return;
+      // Mark before awaiting storage so repeated mutation callbacks cannot
+      // count the same assistant turn more than once.
+      capturedNodes.add(captureNode);
       const openClawTasks = findOpenClawTasks(completeText);
       if (openClawTasks.length) tagCount += openClawTasks.length;
 
@@ -269,7 +278,7 @@
         text: completeText
       };
 
-      captureLog = [entry, ...captureLog.filter(item => !messageId || item.messageId !== messageId)].slice(0, MAX_CAPTURED_MESSAGES);
+      captureLog = [entry, ...captureLog.filter(item => messageId ? item.messageId !== messageId : true)].slice(0, MAX_CAPTURED_MESSAGES);
       try {
         await chrome.storage.local.set({
           bridgeCaptureLog: captureLog,
