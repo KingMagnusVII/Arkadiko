@@ -131,14 +131,32 @@
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-  function findComposer() {
-    return document.querySelector(
-      '#prompt-textarea,[data-testid="prompt-textarea"],' +
-      'textarea[placeholder],[contenteditable="true"].ProseMirror,' +
-      '[contenteditable="true"][role="textbox"]'
-    );
+  function isVisible(element) {
+    if (!(element instanceof HTMLElement) || !element.isConnected) return false;
+    if (element.matches(":disabled,[aria-hidden='true']")) return false;
+    if (element.closest("[hidden],[aria-hidden='true'],[inert]")) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+    return element.getClientRects().length > 0;
   }
 
+  function findComposer() {
+    const selectors = [
+      '#prompt-textarea',
+      '[data-testid="prompt-textarea"]',
+      'textarea[placeholder]',
+      '[contenteditable="true"].ProseMirror',
+      '[contenteditable="true"][role="textbox"]'
+    ];
+    const candidates = selectors.flatMap(selector => Array.from(document.querySelectorAll(selector)));
+    const visible = [...new Set(candidates)].filter(element =>
+      isVisible(element) && !element.disabled && element.getAttribute("aria-disabled") !== "true"
+    );
+    return visible.find(element => element.id === "prompt-textarea") ||
+      visible.find(element => element.getAttribute("data-testid") === "prompt-textarea") ||
+      visible.find(element => element.matches('[contenteditable="true"]')) ||
+      visible.find(element => element.matches("textarea")) || null;
+  }
   function composerText(composer) {
     if (!composer) return "";
     return "value" in composer ? String(composer.value || "") : String(composer.innerText || composer.textContent || "");
