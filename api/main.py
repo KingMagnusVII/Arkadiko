@@ -271,3 +271,21 @@ async def get_task(task_id: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     return task_record(row)
+
+
+@app.delete("/v1/tasks/{task_id}", dependencies=[Depends(require_token)])
+async def delete_task(task_id: str) -> dict[str, str]:
+    """Delete one finished task and its stored execution report from SQLite."""
+    with connect_db() as db:
+        # Keep queued or running tasks intact while OpenClaw may still be using them.
+        row = db.execute(
+            "SELECT status FROM tasks WHERE task_id=?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+        if row["status"] not in ("completed", "failed"):
+            raise HTTPException(status_code=409, detail="A task can only be deleted after it has finished.")
+        # Delete only the task explicitly selected by the latest-report control.
+        db.execute("DELETE FROM tasks WHERE task_id=?", (task_id,))
+    return {"status": "deleted", "task_id": task_id}
