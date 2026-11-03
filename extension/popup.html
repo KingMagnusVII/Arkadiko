@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en">
-<!-- Mono/frosted popup inspired by the supplied HaloInput and BorderBeamCard examples. -->
+<!-- Arkadiko's popup markup. Styling is kept inline so the unpacked extension has no remote UI dependencies. -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenClaw Bridge</title>
+  <title>Arkadiko Bridge</title>
   <style>
     :root {
       color-scheme: dark;
@@ -214,6 +214,7 @@
       overflow-wrap: anywhere;
     }
 
+    /* Open/Close controls are paired so the current bridge state is obvious. */
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
     #run[data-active="true"] { border-color: #bdbdbd; background: rgba(255,255,255,.13); color: #fff; }
     #stop[data-active="true"] { border-color: #bdbdbd; color: #fff; }
@@ -277,29 +278,35 @@
   </style>
 </head>
 <body>
+  <!-- The card is the single visual container for the popup's controls and task status. -->
   <section class="beam-card">
     <div class="inner">
+      <!-- Product identity and a short explanation of what the extension does. -->
       <header>
         <p class="eyebrow">Local execution bridge</p>
-        <h1>OpenClaw Bridge</h1>
+        <h1>Arkadiko Bridge</h1>
         <p class="description">Explicitly tagged ChatGPT tasks, executed locally by OpenClaw.</p>
       </header>
 
+      <!-- The API endpoint is editable for local/custom deployments. -->
       <section class="section">
         <label for="endpoint">Local API URL</label>
         <div class="halo"><input id="endpoint" value="http://127.0.0.1:8765" autocomplete="url"></div>
       </section>
 
+      <!-- The Bearer token must match BRIDGE_API_TOKEN in api/.env. -->
       <section class="section">
         <label for="token">Bridge token</label>
         <div class="halo"><input id="token" type="password" autocomplete="off" placeholder="Local API token"></div>
       </section>
 
+      <!-- These buttons explicitly arm or disarm automatic tagged-task detection. -->
       <div class="actions">
         <button id="run" type="button">Open Bridge</button>
         <button id="stop" class="secondary" type="button">Close Bridge</button>
       </div>
 
+      <!-- Live status and task metadata are populated by popup.js and background.js. -->
       <div class="halo status-halo">
         <div class="status-row">
           <span class="dot" aria-hidden="true"></span>
@@ -308,11 +315,13 @@
       </div>
       <div id="task-meta">Bridge is closed. Only complete &lt;OpenClaw&gt; task blocks are sent.</div>
 
+      <!-- The latest queued task or execution report appears here; popup.js controls visibility. -->
       <div class="halo result-halo">
         <pre id="result"></pre>
       </div>
       <button id="copy" class="secondary" type="button" hidden>Copy latest report</button>
 
+      <!-- Footer reminds the user that task forwarding is local and manually armed. -->
       <div class="footer">LOCAL · USER-ARMED · TAGGED TASKS ONLY</div>
     </div>
   </section>
