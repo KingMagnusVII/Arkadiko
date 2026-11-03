@@ -72,7 +72,42 @@ Open [http://localhost:5678](http://localhost:5678) and complete the initial own
 
 ### 2. Configure the local API
 
-Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. The bridge forwards the submitted task text to OpenClaw without adding repository-generated task instructions. Put any interpreter path, working-directory instruction, or execution constraint you want OpenClaw to follow directly in your task.
+Copy `api/.env.example` to `api/.env`. Before starting the API, generate and configure the three connection values below. **Do not use the same token for the bridge and the OpenClaw Gateway.**
+
+1. **Generate the Bridge API token.** In PowerShell, run this to generate a cryptographically random 32-byte token:
+   ```powershell
+   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+   $bytes = New-Object byte[] 32
+   $rng.GetBytes($bytes)
+   $bridgeToken = [Convert]::ToBase64String($bytes)
+   $rng.Dispose()
+   $bridgeToken
+   ```
+   Copy the printed value. This is your private `BRIDGE_API_TOKEN`; the extension will use this same value as its Bridge token.
+
+2. **Generate/retrieve the OpenClaw Gateway token.** In a PowerShell terminal on the computer running OpenClaw, run:
+   ```powershell
+   openclaw doctor --generate-gateway-token
+   openclaw gateway restart
+   openclaw gateway auth-token --show
+   ```
+   Copy the token printed by the final command. If a persistent Gateway token was already configured, `auth-token --show` displays that configured token. If PowerShell blocks the `openclaw.ps1` shim, use the installed `openclaw.cmd` command instead. Treat the printed token as a password. OpenClaw documents this generation/retrieval flow in its [Gateway authentication guide](https://docs.openclaw.ai/help/faq/config-basics) and [Gateway CLI reference](https://docs.openclaw.ai/cli/gateway/running).
+
+3. **Find the Gateway port.** Run:
+   ```powershell
+   openclaw gateway status
+   ```
+   Use the port shown in the Gateway's listening address. The default is `18789`; if you have not customized it, keep `OPENCLAW_GATEWAY_PORT=18789`. The Gateway port can also be configured through `gateway.port` / `OPENCLAW_GATEWAY_PORT`; see the [official port reference](https://docs.openclaw.ai/help/faq/gateway-ports-and-remote-mode).
+
+4. **Store all three values in `api/.env`.** Open the copied file in VS Code or Notepad and replace the placeholders. For example:
+   ```dotenv
+   BRIDGE_API_TOKEN="paste-the-random-bridge-token-here"
+   OPENCLAW_GATEWAY_TOKEN="paste-the-openclaw-gateway-token-here"
+   OPENCLAW_GATEWAY_PORT=18789
+   ```
+   Keep the rest of the settings in that file, including `OPENCLAW_WORKSPACE`, `OPENCLAW_COMMAND`, and `OPENCLAW_ENTRYPOINT`. The API loads `api/.env` when it starts, and the OpenClaw CLI process inherits these Gateway environment variables. The extension's Bridge token field must match `BRIDGE_API_TOKEN`, **not** `OPENCLAW_GATEWAY_TOKEN`.
+
+Set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. The bridge forwards submitted task text unchanged to OpenClaw without adding repository-generated task instructions. Put any interpreter path, working-directory instruction, or execution constraint you want OpenClaw to follow directly in your task.
 
 To change the API's environment settings later, edit the existing values in `api/.env` (not `api/.env.example`) using a text editor. Keep the variable names unchanged, save the file, and restart the FastAPI/Uvicorn process for the new values to load. For example, update `OPENCLAW_WORKSPACE` to change the working folder or `OPENCLAW_ENTRYPOINT` if the installed OpenClaw entrypoint path changes. Do not commit `api/.env` or share its token; the extension's Bridge token must match `BRIDGE_API_TOKEN` in that file.
 
