@@ -17,7 +17,9 @@
     '[data-turn-key]:has([data-chatgpt-agent-turn-start])'
   ].join(',');
 
-  const CAPTURE_DELAY_MS = 500;
+  // Wait for streaming to finish and the assistant DOM to settle before capturing.
+  const CAPTURE_DELAY_MS = 1500;
+  const GENERATION_RECHECK_MS = 500;
   const FALLBACK_SCAN_MS = 1200;
   const MAX_CAPTURED_MESSAGES = 10;
   const OPENCLAW_TAG_RE = /<OpenClaw>([\s\S]*?)<\/OpenClaw>/i;
@@ -119,6 +121,16 @@
     }
     if (node.matches('[data-testid^="conversation-turn-"]')) return Boolean(node.querySelector('[data-message-author-role="assistant"]'));
     return false;
+  }
+
+  function isAssistantGenerationActive() {
+    // ChatGPT exposes a Stop control while an assistant turn is still streaming.
+    // Keep waiting while it is present, even if the text temporarily stops changing.
+    return Boolean(document.querySelector(
+      'button[data-testid="stop-button"],' +
+      'button[aria-label*="Stop generating" i],' +
+      'button[aria-label*="Stop streaming" i]'
+    ));
   }
 
   function getCaptureText(node) {
@@ -254,8 +266,30 @@
       if (!enabled || preExistingNodes.has(captureNode)) return;
       const completeText = getCaptureText(captureNode);
       if (!completeText || capturedNodes.has(captureNode)) return;
-      // Mark before awaiting storage so repeated mutation callbacks cannot
-      // count the same assistant turn more than once.
+
+      // A quiet DOM interval alone is not enough: streaming can pause briefly.
+      // If ChatGPT still shows its Stop control, keep polling until generation ends.
+      if (isAssistantGenerationActive()) {
+        const retryTimer = setTimeout(async () => {
+          if (!enabled || preExistingNodes.has(captureNode) || capturedNodes.has(captureNode)) return;
+          const latestText = getCaptureText(captureNode);
+          if (!latestText) return;
+          if (isAssistantGenerationActive()) {
+            pendingTimers.set(captureNode, setTimeout(() => {
+              // Re-enter the normal debounce path after another short wait.
+              lastSeenText.set(captureNode, '');
+              scheduleCapture(captureNode, source);
+            }, GENERATION_RECHECK_MS));
+            return;
+          }
+          lastSeenText.set(captureNode, '');
+          scheduleCapture(captureNode, source);
+        }, GENERATION_RECHECK_MS);
+        pendingTimers.set(captureNode, retryTimer);
+        return;
+      }
+
+      // Mark only after the assistant turn is complete, before awaiting storage.
       capturedNodes.add(captureNode);
       const openClawTasks = findOpenClawTasks(completeText);
       if (openClawTasks.length) tagCount += openClawTasks.length;
