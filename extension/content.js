@@ -131,8 +131,6 @@
     saveDiagnostics({ lastError: 'Could not read extension storage: ' + error.message });
   });
 
-  // Keep storage-based state synchronization as a fallback, but popup commands
-  // now also arm/disarm this exact tab directly.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes.bridgeRunning) {
@@ -187,7 +185,7 @@
     }
     if (node.matches('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]')) return node;
     if (node.matches('[data-turn-key]')) {
-      return node.querySelector('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"], [data-conversation-role="assistant"], [data-chatgpt-agent-turn-start"], [data-markdown-text-style="assistant-message"]') || node;
+      return node.querySelector('[data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"], [data-conversation-role="assistant"], [data-chatgpt-agent-turn-start], [data-markdown-text-style="assistant-message"]') || node;
     }
     const roleNode = node.querySelector?.('[data-message-author-role="assistant"], [data-conversation-role="assistant"], [data-content-search-unit-key$=":assistant"], [data-chatgpt-search-unit-key$=":assistant"]');
     return roleNode || null;
