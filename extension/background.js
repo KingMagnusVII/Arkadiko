@@ -34,10 +34,9 @@ function delay(ms) {
 }
 
 function formatReport(task, result) {
-  const status = result.status || "unknown";
   const lines = [
     "OpenClaw execution report",
-    "Status: " + status.toUpperCase(),
+    "Status: " + (result.status || "unknown").toUpperCase(),
     "Task: " + task,
     "Exit code: " + (result.exit_code ?? "not available"),
     "",
@@ -66,21 +65,37 @@ async function runTask(taskId, task, tabId) {
     if (!result || (result.status !== "completed" && result.status !== "failed")) {
       throw new Error("Timed out while waiting for the OpenClaw task result.");
     }
+
     const report = formatReport(task, result);
     await chrome.storage.local.set({
       bridgeLastResult: { taskId, task, result, report, receivedAt: new Date().toISOString() },
       bridgeLastStatus: {
-        message: result.status === "completed" ? "OpenClaw finished. Returning its report to ChatGPT." : "OpenClaw task failed. Returning its failure report to ChatGPT.",
-        kind: result.status === "completed" ? "completed" : "failed"
+        message: "OpenClaw finished. Submitting its report automatically to ChatGPT.",
+        kind: "working"
       }
     });
+
     try {
-      await chrome.tabs.sendMessage(tabId, { type: "openclaw-bridge-insert-result", report });
+      const delivery = await chrome.tabs.sendMessage(tabId, {
+        type: "openclaw-bridge-insert-result", report
+      });
+      if (!delivery?.ok || !delivery?.submitted || !delivery?.confirmed) {
+        throw new Error(delivery?.error || "ChatGPT did not confirm report submission.");
+      }
+      await chrome.storage.local.set({
+        bridgeLastStatus: {
+          message: "Report submitted and ChatGPT confirmed it accepted the message.",
+          kind: "completed",
+          delivery
+        }
+      });
     } catch (error) {
       await chrome.storage.local.set({
         bridgeLastStatus: {
-          message: "OpenClaw finished, but ChatGPT could not receive the report. Open the original ChatGPT tab and copy it from the popup.",
-          kind: "error"
+          message: "OpenClaw finished, but automatic ChatGPT submission failed: " + error.message +
+            " Keep this tab open; the report is saved in the bridge popup.",
+          kind: "error",
+          deliveryError: error.message
         }
       });
     }
