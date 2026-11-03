@@ -1,8 +1,14 @@
-// Extension service worker: authenticated local API handoff and result polling.
+// Arkadiko's Manifest V3 service worker coordinates the extension-to-API task lifecycle.
+// It submits tagged tasks, polls the local API, stores status, and returns reports to ChatGPT.
+
+// Local API fallback used until the user changes the endpoint in the extension popup.
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8765";
+// Poll every two seconds so the popup and originating ChatGPT tab receive updates promptly.
 const POLL_INTERVAL_MS = 2000;
+// Stop polling after roughly five and a half minutes to avoid an unbounded background loop.
 const MAX_POLL_ATTEMPTS = 165;
 
+// Read the saved API URL and token; never make an authenticated request without a token.
 async function getConnection() {
   const saved = await chrome.storage.local.get(["endpoint", "token"]);
   const endpoint = (saved.endpoint || DEFAULT_ENDPOINT).replace(/\/$/, "");
@@ -11,6 +17,7 @@ async function getConnection() {
   return { endpoint, token };
 }
 
+// Shared HTTP helper: attaches Bearer authentication, parses JSON, and surfaces API errors.
 async function apiRequest(path, options = {}) {
   const { endpoint, token } = await getConnection();
   const response = await fetch(endpoint + path, {
@@ -29,10 +36,12 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+// Promise-based pause used between result-status requests.
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Convert the API task record into a readable report for the popup and ChatGPT conversation.
 function formatReport(task, result) {
   const lines = [
     "OpenClaw execution report",
@@ -51,6 +60,7 @@ function formatReport(task, result) {
   return lines.join("\n");
 }
 
+// Poll one accepted task until it completes/fails or the polling deadline is reached.
 async function runTask(taskId, task, tabId) {
   try {
     await chrome.storage.local.set({
@@ -66,6 +76,7 @@ async function runTask(taskId, task, tabId) {
       throw new Error("Timed out while waiting for the OpenClaw task result.");
     }
 
+    // Save the complete report before attempting delivery so it remains available if ChatGPT is unavailable.
     const report = formatReport(task, result);
     await chrome.storage.local.set({
       bridgeLastResult: { taskId, task, result, report, receivedAt: new Date().toISOString() },
@@ -75,6 +86,7 @@ async function runTask(taskId, task, tabId) {
       }
     });
 
+    // Delivery is a separate step: execution can succeed even if the browser cannot submit the report.
     try {
       const delivery = await chrome.tabs.sendMessage(tabId, {
         type: "openclaw-bridge-insert-result", report
@@ -100,12 +112,14 @@ async function runTask(taskId, task, tabId) {
       });
     }
   } catch (error) {
+    // Store unexpected API/polling failures in the popup rather than losing the task's visible status.
     await chrome.storage.local.set({
       bridgeLastStatus: { message: "Bridge error: " + error.message, kind: "error" }
     });
   }
 }
 
+// Receive task handoffs from content.js, submit them to FastAPI, and start polling in the background.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "openclaw-bridge-submit-task") return false;
   (async () => {
@@ -114,6 +128,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!task) throw new Error("The tagged task was empty.");
       const tabId = sender.tab?.id;
       if (!Number.isInteger(tabId)) throw new Error("Could not identify the ChatGPT tab that sent this task.");
+
+      // FastAPI responds with a task ID immediately; OpenClaw execution happens asynchronously on the API side.
       const created = await apiRequest("/v1/tasks", {
         method: "POST",
         body: JSON.stringify({ task })
@@ -122,11 +138,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         bridgeLastTaskId: created.task_id,
         bridgeLastStatus: { message: "Task accepted by the local bridge and queued for OpenClaw.", kind: "queued" }
       });
+
+      // Do not await the polling loop here; acknowledge the handoff while it runs.
       runTask(created.task_id, task, tabId);
       sendResponse({ ok: true, taskId: created.task_id, status: created.status || "queued" });
     } catch (error) {
       sendResponse({ ok: false, error: error.message });
     }
   })();
-  return true;
+  return true; // Keep the message channel open until the async response is sent.
 });
