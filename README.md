@@ -72,7 +72,7 @@ Open [http://localhost:5678](http://localhost:5678) and complete the initial own
 
 ### 2. Configure the local API
 
-Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. `OPENCLAW_PYTHON` is injected into every task prompt so the agent uses the configured full interpreter path instead of relying on Windows PATH aliases. This setting controls Python used by the OpenClaw agent, not the Python interpreter used to run the FastAPI service.
+Copy `api/.env.example` to `api/.env`. Set a long random `BRIDGE_API_TOKEN` and set `OPENCLAW_WORKSPACE` to the project folder you intend to operate on. The template uses Node plus the OpenClaw `.mjs` entrypoint path from the current Windows installation; update `OPENCLAW_ENTRYPOINT` if your installed package path differs. The bridge forwards the submitted task text to OpenClaw without adding repository-generated task instructions. Put any interpreter path, working-directory instruction, or execution constraint you want OpenClaw to follow directly in your task.
 
 Install and run:
 
@@ -149,7 +149,7 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 - [x] Authenticated FastAPI task API with SQLite task tracking
 - [x] Manual extension popup for task submission
 - [x] Use the supported Gateway-backed `openclaw agent --message-file --json` invocation and parse its final reply
-- [x] Inject the user's Python full-path and execution-only/file-change instructions into every handed-off task
+- [x] Forward only the submitted task text to OpenClaw without adding repository-generated instructions
 - [x] Add result polling and a copy/return-to-ChatGPT action in the extension
 - [ ] Add an importable n8n workflow and wire n8n into the task lifecycle
 - [x] Add initial unit tests for JSON result parsing and persistent task instructions
@@ -160,7 +160,7 @@ A task result includes `status`, `stdout`, `stderr`, `exit_code`, timestamps, an
 
 - Keep `.env`, `api/.env`, tokens, encryption keys, SQLite databases, and execution logs out of Git.
 - Keep the API on `127.0.0.1`.
-- The API passes natural-language tasks to the configured OpenClaw agent through the Gateway-backed CLI and captures its structured JSON result. Every task prompt carries the configured Python interpreter path and instructs the agent not to create or modify files unless the task explicitly requests it. OpenClaw's own tool permissions remain authoritative; this project does not attempt to bypass them.
+- The API passes the submitted task text unchanged to the configured OpenClaw agent through the Gateway-backed CLI and captures its structured JSON result. It does not append workspace, Python, file-editing, or other task instructions. OpenClaw's own tool permissions remain authoritative.
 - The configured workspace path is included in the agent instruction, but this is not an OS-level filesystem sandbox. Keep OpenClaw's actual filesystem permissions narrow.
 - Do not send secrets or credentials in task text.
 - Do not expose n8n or the bridge API to the public internet as part of this local-only setup.
