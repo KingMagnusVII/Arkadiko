@@ -280,7 +280,7 @@
       <header>
         <p class="eyebrow">Local execution bridge</p>
         <h1>OpenClaw Bridge</h1>
-        <p class="description">Temporary diagnostic: capture assistant messages for inspection only. No OpenClaw execution.</p>
+        <p class="description">Explicitly tagged ChatGPT tasks, executed locally by OpenClaw.</p>
       </header>
 
       <section class="section">
@@ -294,8 +294,8 @@
       </section>
 
       <div class="actions">
-        <button id="run" type="button">Start capture</button>
-        <button id="stop" class="secondary" type="button">Stop</button>
+        <button id="run" type="button">Open Bridge</button>
+        <button id="stop" class="secondary" type="button">Close Bridge</button>
       </div>
 
       <div class="halo status-halo">
@@ -309,9 +309,9 @@
       <div class="halo result-halo">
         <pre id="result"></pre>
       </div>
-      <button id="copy" class="secondary" type="button" hidden>Copy captured message</button>
+      <button id="copy" class="secondary" type="button" hidden>Copy latest report</button>
 
-      <div class="footer">READ-ONLY TRIAL · no tasks executed or sent</div>
+      <div class="footer">LOCAL · USER-ARMED · TAGGED TASKS ONLY</div>
     </div>
   </section>
   <script src="popup.js"></script>
