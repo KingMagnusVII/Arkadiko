@@ -4,6 +4,7 @@
   if (window.__openClawBridgeLoaded) return;
   window.__openClawBridgeLoaded = true;
 
+  // ChatGPT changes its DOM over time; these selectors cover the assistant-turn containers seen in supported layouts.
   const SELECTOR = [
     '[data-message-author-role="assistant"]',
     '[data-conversation-role="assistant"]',
@@ -30,6 +31,7 @@
   const historicalNodes = new WeakSet();
   const timers = new WeakMap();
 
+  // Convert different ChatGPT DOM wrappers into one stable assistant-message node for deduplication.
   function normalize(node) {
     if (!(node instanceof Element)) return null;
     if (node.getAttribute("data-message-author-role") === "assistant") return node;
@@ -70,6 +72,7 @@
     return false;
   }
 
+  // Read rendered assistant text, preferring the message's markdown container over surrounding controls.
   function getText(node) {
     if (!(node instanceof Element)) return "";
     const content = node.querySelector?.(
@@ -83,6 +86,7 @@
     return (source.innerText || source.textContent || "").replace(/\u00a0/g, " ").trim();
   }
 
+  // Avoid capturing a response while ChatGPT is still streaming tokens.
   function generationActive() {
     return Array.from(document.querySelectorAll("button")).some(button => {
       const label = (button.getAttribute("aria-label") || "").toLowerCase();
@@ -92,6 +96,7 @@
         label.includes("stop streaming") || text === "stop";
     });
   }
+  // Extract only the inner text of complete OpenClaw tags; incomplete tags are ignored.
   function extractTasks(text) {
     const tasks = [];
     const matcher = new RegExp(TAG_RE.source, "gi");
@@ -103,6 +108,7 @@
     return tasks;
   }
 
+  // Mark messages already on screen as historical so opening the bridge never replays old tasks.
   function seedHistory() {
     for (const element of document.querySelectorAll(SELECTOR)) {
       const node = normalize(element);
@@ -114,6 +120,7 @@
     await chrome.storage.local.set({ bridgeLastStatus: { message, kind, ...extra } });
   }
 
+  // Persist the user's explicit Open/Close choice and seed the current page when arming the bridge.
   async function setEnabled(next) {
     if (!stateReady) {
       pendingEnable = next === true;
@@ -131,6 +138,7 @@
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+  // Ignore hidden, detached, disabled, or inert elements when locating ChatGPT's active composer.
   function isVisible(element) {
     if (!(element instanceof HTMLElement) || !element.isConnected) return false;
     if (element.matches(":disabled,[aria-hidden='true']")) return false;
@@ -140,6 +148,7 @@
     return element.getClientRects().length > 0;
   }
 
+  // ChatGPT has used several editor implementations; prefer its primary prompt-textarea when visible.
   function findComposer() {
     const selectors = [
       '#prompt-textarea',
@@ -171,6 +180,7 @@
     );
   }
 
+  // Poll for a UI condition with a hard deadline instead of waiting indefinitely.
   async function waitFor(predicate, timeoutMs, failureMessage) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -181,6 +191,7 @@
     throw new Error(failureMessage);
   }
 
+  // Insert text through the editor's supported input path, then verify that the full report appeared.
   function setComposerText(composer, text) {
     composer.focus();
     if ("value" in composer) {
@@ -211,6 +222,7 @@
     }
   }
 
+  // Deliver a completed report only while armed, and never overwrite a draft the user is composing.
   async function insertResultIntoChat(report) {
     if (!enabled) throw new Error("The bridge is closed; automatic report submission is disabled.");
     const text = String(report || "").trim();
@@ -250,6 +262,7 @@
     return { ok: true, submitted: true, confirmed: true };
   }
 
+  // Handle popup commands and result-delivery requests sent by the extension service worker.
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "openclaw-bridge-open") {
       setEnabled(true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
@@ -266,6 +279,7 @@
     return false;
   });
 
+  // Restore persisted bridge state before observing new messages; queue early popup commands until ready.
   chrome.storage.local.get(["bridgeRunning"]).then(saved => {
     enabled = saved.bridgeRunning === true;
     stateReady = true;
@@ -292,6 +306,7 @@
     }
   });
 
+  // Debounce DOM mutations, wait for stable completed text, and submit each assistant turn at most once.
   function schedule(node) {
     if (!enabled || !stateReady || !(node instanceof Element)) return;
     const captureNode = normalize(node);
@@ -344,6 +359,7 @@
     timers.set(captureNode, timer);
   }
 
+  // Inspect changed DOM nodes and their nearby assistant containers for newly rendered turns.
   function inspect(node) {
     const element = node instanceof Element ? node : node?.parentElement;
     if (!element) return;
@@ -353,6 +369,7 @@
     element.querySelectorAll?.(SELECTOR).forEach(schedule);
   }
 
+  // Observe ChatGPT's dynamic conversation DOM; a light periodic scan backs up missed mutations.
   const observer = new MutationObserver(records => {
     if (!enabled || !stateReady) return;
     for (const record of records) {
