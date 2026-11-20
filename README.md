@@ -165,6 +165,8 @@ This starts the local FastAPI bridge; it does not start the OpenClaw Gateway its
 
 When open, the content script waits for assistant generation to finish and the message text to stabilize before extracting complete tags. The latest received task remains visible in the popup; completed execution reports are also shown there and returned to ChatGPT.
 
+While the bridge is open, the extension also watches for ChatGPT context/conversation length warnings. If the warning itself contains a **New chat** button, the extension clicks that button automatically; ordinary New chat controls elsewhere on the page are ignored. Close the bridge to disable this recovery behavior.
+
 ## API
 
 All task endpoints except health require:

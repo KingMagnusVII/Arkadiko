@@ -131,6 +131,51 @@
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+  // Match only an explicit context/conversation length warning, never a normal sidebar button.
+  const CONTEXT_LIMIT_RE = /(?:context|conversation).{0,120}(?:window\s+)?(?:full|limit|maximum|too long|reached)|(?:maximum|limit).{0,100}(?:context|conversation)|you(?:'|’)ve reached the maximum length for this conversation/i;
+  const clickedContextWarnings = new WeakSet();
+  let contextRecoveryInProgress = false;
+
+  function isNewChatButton(button) {
+    if (!(button instanceof HTMLElement) || !isVisible(button)) return false;
+    const labels = [button.getAttribute("aria-label"), button.getAttribute("title"), button.innerText, button.textContent]
+      .filter(Boolean).map(label => label.replace(/\s+/g, " ").trim());
+    return labels.some(label => /^(?:new chat|start a new chat)$/i.test(label));
+  }
+
+  function findContextWarning(button) {
+    // Require the warning text and New chat control to belong to the same visible container.
+    let container = button.parentElement;
+    for (let depth = 0; container && depth < 8; depth += 1, container = container.parentElement) {
+      if (!isVisible(container)) continue;
+      const message = (container.innerText || container.textContent || "")
+        .replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+      if (message.length <= 1200 && CONTEXT_LIMIT_RE.test(message)) return container;
+    }
+    return null;
+  }
+
+  function recoverFromContextLimit() {
+    // Automatic recovery is available only while the user has opened the bridge.
+    if (!enabled || !stateReady || contextRecoveryInProgress) return;
+    for (const button of document.querySelectorAll("button,[role='button'],a")) {
+      if (!isNewChatButton(button)) continue;
+      const warning = findContextWarning(button);
+      if (!warning || clickedContextWarnings.has(warning)) continue;
+
+      // Mark the warning before clicking to prevent duplicate actions from DOM mutations.
+      clickedContextWarnings.add(warning);
+      contextRecoveryInProgress = true;
+      button.click();
+      reportStatus("ChatGPT context limit detected. Started a new chat automatically.", "working")
+        .catch(() => {});
+      // Allow the SPA time to transition before considering another warning.
+      setTimeout(() => { contextRecoveryInProgress = false; }, 5000);
+      break;
+    }
+  }
+
+
   function isVisible(element) {
     if (!(element instanceof HTMLElement) || !element.isConnected) return false;
     if (element.matches(":disabled,[aria-hidden='true']")) return false;
@@ -355,6 +400,7 @@
 
   const observer = new MutationObserver(records => {
     if (!enabled || !stateReady) return;
+    recoverFromContextLimit();
     for (const record of records) {
       if (record.type === "childList") record.addedNodes.forEach(inspect);
       inspect(record.target);
@@ -365,6 +411,9 @@
     attributeFilter: ["data-turn", "data-testid", "data-message-author-role", "data-conversation-role", "data-turn-key"]
   });
   setInterval(() => {
-    if (enabled && stateReady) document.querySelectorAll(SELECTOR).forEach(schedule);
+    if (enabled && stateReady) {
+      recoverFromContextLimit();
+      document.querySelectorAll(SELECTOR).forEach(schedule);
+    }
   }, SCAN_INTERVAL_MS);
 })();
