@@ -29,7 +29,8 @@ The configured working directory is not an OS-level sandbox. The bridge forwards
 15. Manual result polling by task ID.
 16. Copy formatted result to clipboard for deliberate paste into ChatGPT.
 17. Optional n8n Compose service with loopback binding, named volume and health check.
-18. Initial unit tests for prompt content and output parsing.\n19. Automatic recovery from ChatGPT context/conversation length warnings while the bridge is open: detect the warning and click only its associated New chat control.
+18. Initial unit tests for prompt content and output parsing.
+19. Automatic recovery from ChatGPT context/conversation length warnings while the bridge is open: detect the warning and click only its associated New chat control.
 
 ## 3. Repository layout
 
