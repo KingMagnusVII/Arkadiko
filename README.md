@@ -163,7 +163,7 @@ This starts the local FastAPI bridge; it does not start the OpenClaw Gateway its
 5. Enter the local API token, then choose **Open Bridge**.
 6. Ask ChatGPT for an explicitly tagged task. The complete contents of each `<OpenClaw> ... </OpenClaw>` block are queued and sent to OpenClaw. Choose **Close Bridge** to stop new handoffs.
 
-When open, the content script waits for assistant generation to finish and the message text to stabilize before extracting complete tags. The latest received task remains visible in the popup; completed execution reports are also shown there and returned to ChatGPT.
+When open, the content script waits for assistant generation to finish and the message text to stabilize before extracting complete tags. The latest received task remains visible in the popup; completed execution reports are also shown there and returned to ChatGPT.\n\nWhile the bridge is open, the extension also watches for ChatGPT context/conversation length warnings. If the warning itself contains a **New chat** button, the extension clicks that button automatically; ordinary New chat controls elsewhere on the page are ignored. Close the bridge to disable this recovery behavior.
 
 ## API
 
