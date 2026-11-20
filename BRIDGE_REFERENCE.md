@@ -29,7 +29,7 @@ The configured working directory is not an OS-level sandbox. The bridge forwards
 15. Manual result polling by task ID.
 16. Copy formatted result to clipboard for deliberate paste into ChatGPT.
 17. Optional n8n Compose service with loopback binding, named volume and health check.
-18. Initial unit tests for prompt content and output parsing.
+18. Initial unit tests for prompt content and output parsing.\n19. Automatic recovery from ChatGPT context/conversation length warnings while the bridge is open: detect the warning and click only its associated New chat control.
 
 ## 3. Repository layout
 
@@ -186,7 +186,7 @@ Status is completed when subprocess return code is zero and parsed agent JSON ha
 
 ## 7. Known gaps
 1. n8n integration: Compose only; no workflow JSON or API-to-n8n call.
-2. In-page ChatGPT handoff: manual popup entry; no content-script integration.
+2. In-page ChatGPT handoff: content-script integration is active for tagged assistant tasks and automatic report insertion.
 3. Automatic polling: user clicks Check latest result.
 4. Persistent latest task ID: popup memory resets on close.
 5. File change report: prompt asks agent to report changes, but API does not independently snapshot/verify workspace.
