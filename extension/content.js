@@ -132,14 +132,14 @@
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   // Match only an explicit context/conversation length warning, never a normal sidebar button.
-  const CONTEXT_LIMIT_RE = /(?:context|conversation).{0,120}(?:window\\s+)?(?:full|limit|maximum|too long|reached)|(?:maximum|limit).{0,100}(?:context|conversation)|you(?:'|’)ve reached the maximum length for this conversation/i;
+  const CONTEXT_LIMIT_RE = /(?:context|conversation).{0,120}(?:window\s+)?(?:full|limit|maximum|too long|reached)|(?:maximum|limit).{0,100}(?:context|conversation)|you(?:'|’)ve reached the maximum length for this conversation/i;
   const clickedContextWarnings = new WeakSet();
   let contextRecoveryInProgress = false;
 
   function isNewChatButton(button) {
     if (!(button instanceof HTMLElement) || !isVisible(button)) return false;
     const label = [button.getAttribute("aria-label"), button.getAttribute("title"), button.innerText, button.textContent]
-      .filter(Boolean).join(" ").replace(/\\s+/g, " ").trim();
+      .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     return /^(?:new chat|start a new chat)$/i.test(label);
   }
 
@@ -149,7 +149,7 @@
     for (let depth = 0; container && depth < 8; depth += 1, container = container.parentElement) {
       if (!isVisible(container)) continue;
       const message = (container.innerText || container.textContent || "")
-        .replace(/\\u00a0/g, " ").replace(/\\s+/g, " ").trim();
+        .replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
       if (message.length <= 1200 && CONTEXT_LIMIT_RE.test(message)) return container;
     }
     return null;
