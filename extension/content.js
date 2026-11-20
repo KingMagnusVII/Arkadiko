@@ -138,9 +138,9 @@
 
   function isNewChatButton(button) {
     if (!(button instanceof HTMLElement) || !isVisible(button)) return false;
-    const label = [button.getAttribute("aria-label"), button.getAttribute("title"), button.innerText, button.textContent]
-      .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
-    return /^(?:new chat|start a new chat)$/i.test(label);
+    const labels = [button.getAttribute("aria-label"), button.getAttribute("title"), button.innerText, button.textContent]
+      .filter(Boolean).map(label => label.replace(/\s+/g, " ").trim());
+    return labels.some(label => /^(?:new chat|start a new chat)$/i.test(label));
   }
 
   function findContextWarning(button) {
